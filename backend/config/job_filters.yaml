@@ -1,0 +1,72 @@
+primary_titles:
+- Data Analyst
+- Business Analyst
+- Sales Compensation Analyst
+- Financial Analyst
+secondary_titles:
+- Junior Data Analyst
+- Business Intelligence Analyst
+- Reporting Analyst
+- Operations Analyst
+- Financial Sales Consultant
+strong_skills:
+- SQL
+- Power BI
+- Data Modelling
+- DAX
+- Data Cleaning
+- Dashboard Development
+- Sales Compensation Analysis
+- Python
+- Data Analysis
+- Power Query
+moderate_skills:
+- Anaplan
+- Python Libraries (NumPy, Pandas, SQLAlchemy)
+- Excel (VBA, XLOOKUP, Macros)
+- Data Validation
+- Cross-functional Collaboration
+- Stakeholder Reporting
+- Process Automation
+supporting_skills:
+- Matplotlib
+- Openpyxl
+- SciPy
+- Row Level Security (RLS)
+- Conditional Formatting
+- Paginated Reports
+- Customer Engagement
+- Sales
+tools:
+- SQL
+- Python
+- Power BI
+- Anaplan
+- Excel
+- LeetCode
+industries:
+- Financial Services / FinTech
+- Sales Compensation / Commission Analysis
+- Business Intelligence / Data Analytics
+locations:
+- Toronto, ON
+- Remote Canada
+negative_keywords:
+- expert Java
+- 5+ years experience required
+- government clearance
+- nursing license
+- CISSP required
+- security clearance
+- CPA required
+- mandatory certification
+- PhD required
+experience_range:
+  min: 0
+  max: 8
+remote_preferences:
+- Remote
+- Hybrid
+employment_types:
+- Full-time
+prompt_version: 1.0.0

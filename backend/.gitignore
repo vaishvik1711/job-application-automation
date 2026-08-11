@@ -1,0 +1,52 @@
+# Environment
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data
+data/master_resume/*
+!data/master_resume/.gitkeep
+data/additional_experience/*
+!data/additional_experience/.gitkeep
+data/generated_resumes/*
+!data/generated_resumes/.gitkeep
+data/generated_cover_letters/*
+!data/generated_cover_letters/.gitkeep
+data/user_documents/*
+!data/user_documents/.gitkeep
+
+# Database
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+
+# Logs
+logs/*.log
+
+# Output
+output/*.xlsx
+output/*.md
+
+# Browser
+browser_profile/
+
+# OS
+.DS_Store
+Thumbs.db

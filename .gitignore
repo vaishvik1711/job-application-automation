@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Claude settings (may contain local config)
+.claude/settings.json
+.claude/settings.local.json
+
+# Node.js
+node_modules/
+.vercel/
+.vercelignore
+
+# Build outputs
+dist/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.log
+
+# Database
+*.db
+*.db-journal
+database/
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+ehthumbs_vault.zip
+desktop.ini
+
+# Frontend
+.env.local
+.env.*.local
+
+# Data files
+data/
+*.csv
+*.xlsx
+*.pdf
+*.docx
+*.doc
+*.html
+
+# Supabase
+supabase/.temp/
+
+# Other
+jobbank_debug*.html

@@ -1,0 +1,87 @@
+# Application Rules Configuration
+# Controls how applications are filled and submitted
+
+application_rules:
+  # Personal information (populated during setup)
+  personal_info:
+    full_name: ""
+    email: ""
+    phone: ""
+    address: ""
+    city: ""
+    province: ""
+    postal_code: ""
+    country: "Canada"
+    work_authorization: ""
+    linkedin_url: ""
+    portfolio_url: ""
+    github_url: ""
+    notice_period_weeks: 2
+    salary_expectation_min: 0
+    salary_expectation_max: 0
+    salary_currency: "CAD"
+
+  # Education (populated during setup)
+  education: []
+
+  # Employment history (populated from resume)
+  employment: []
+
+  # Screening question handling
+  screening:
+    # Confidence threshold for auto-answering (0-1)
+    auto_answer_threshold: 0.9
+    # Always require human for these question types
+    always_human:
+      - "legal_declaration"
+      - "salary_history"
+      - "background_check_consent"
+      - "diversity_survey"
+      - "references"
+
+  # Resume upload
+  resume:
+    # File format preference when multiple accepted
+    preferred_format: "docx"
+    # Custom filename template
+    filename_template: "{date}_{company}_{title}_v{version:02d}.docx"
+
+  # Cover letter
+  cover_letter:
+    enabled: false
+    # Generate only for high-match jobs (score >= threshold)
+    min_match_score: 90
+    template: ""
+
+  # Application submission
+  submission:
+    # Require explicit confirmation before submit in auto mode
+    require_confirmation: true
+    # Verify all fields before submit
+    validate_before_submit: true
+    # Capture confirmation screenshot
+    capture_confirmation: true
+
+  # Human intervention triggers
+  human_intervention:
+    on_captcha: true
+    on_mfa: true
+    on_login_required: true
+    on_unknown_question: true
+    on_legal_declaration: true
+    on_unsupported_site: true
+    on_field_mismatch: true
+
+  # Site-specific rules
+  site_rules:
+    linkedin:
+      use_easy_apply: true
+      max_questions_auto: 10
+    indeed:
+      use_indeed_apply: true
+      max_questions_auto: 10
+    glassdoor:
+      redirect_to_company: true
+    company_site:
+      max_depth: 5
+      follow_apply_buttons: true

@@ -1,0 +1,85 @@
+"""
+FastAPI application for Job Automation System.
+This provides the REST API backend for the frontend dashboard.
+"""
+import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from contextlib import asynccontextmanager
+
+from api.routes.health import router as health_router
+from api.routes.profile import router as profile_router
+from api.routes.jobs import router as jobs_router
+from api.routes.matching import router as matching_router
+from api.routes.resumes import router as resumes_router
+from api.routes.applications import router as applications_router
+from api.routes.analytics import router as analytics_router
+from api.routes.settings import router as settings_router
+from api.dependencies import engine, async_session
+from database import models as db_models
+from sqlalchemy import select
+
+# Create tables on startup (in addition to Supabase migrations)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create tables if they don't exist
+    async with engine.begin() as conn:
+        await conn.run_sync(db_models.Base.metadata.create_all)
+
+    # Seed default matching config
+    async with async_session() as session:
+        result = await session.execute(select(db_models.MatchingConfig))
+        config = result.scalars().first()
+        if not config:
+            config = db_models.MatchingConfig(
+                default_weights={"skills": 30, "experience": 25, "education": 10, "location": 15, "keywords": 20},
+                auto_qualify_threshold=75.0,
+                min_skill_match=0.5,
+            )
+            session.add(config)
+            await session.flush()
+
+    yield
+
+
+app = FastAPI(
+    title="Job Automation API",
+    description="API for the AI Job Application Automation System",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include all routers
+app.include_router(health_router)
+app.include_router(profile_router, prefix="/api")
+app.include_router(jobs_router, prefix="/api")
+app.include_router(matching_router, prefix="/api")
+app.include_router(resumes_router, prefix="/api")
+app.include_router(applications_router, prefix="/api")
+app.include_router(analytics_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
+
+
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/health")
+
+
+@app.get("/api")
+async def api_root():
+    return {"message": "Job Automation API", "version": "1.0.0"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
