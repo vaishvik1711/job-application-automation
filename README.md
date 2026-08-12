@@ -9,7 +9,7 @@ A full-stack AI-powered job application automation system with a React frontend 
 - **Database**: Supabase Postgres
 - **File Storage**: Supabase Storage
 - **LLM**: OpenRouter (poolside/laguna-s-2.1:free)
-- **Deployment**: Vercel (frontend) + Render.com (backend)
+- **Deployment**: Vercel (frontend) + Railway (backend)
 
 ## Getting Started
 
@@ -42,6 +42,17 @@ cp backend/.env.example backend/.env
 
 Update with your Supabase credentials and LLM API keys.
 
+### Model Configuration
+
+The LLM model is configured once via the `ANTHROPIC_MODEL` environment variable:
+
+| Source | Where |
+|--------|-------|
+| `.claude/settings.json` (`env.ANTHROPIC_MODEL`) | **Primary** — used by Claude Code for all backend and frontend operations |
+| `backend/.env` (`ANTHROPIC_MODEL`) | Used at runtime / in deployment |
+
+The backend (`llm/client.py`) and frontend (`LLMSettingsForm.tsx`) both read this variable directly. `LLM_MODEL` is kept as a legacy alias. To switch models, edit `ANTHROPIC_MODEL` in `.claude/settings.json` — no code changes needed.
+
 ## Deployment
 
 ### Supabase Setup
@@ -59,19 +70,19 @@ Set environment variables in Vercel project settings:
 - `VITE_API_URL` — backend URL on Render.com
 - `VITE_SUPABASE_URL` — Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` — Supabase anon key
+- `ANTHROPIC_MODEL` — LLM model identifier (e.g. `poolside/laguna-s-2.1:free`). See [Model Configuration](#model-configuration) below.
 
-### Backend Deployment (Render.com)
-1. Create a new Web Service on [render.com](https://render.com)
+### Backend Deployment (Railway)
+1. Create a project at [railway.app](https://railway.app)
 2. Connect your GitHub repo
-3. Set build command: `pip install -r backend/requirements.txt -r backend/api/requirements.txt`
-4. Set start command: `uvicorn api.main:app --host 0.0.0.0 --port $PORT`
-5. Set environment variables:
+3. Railway auto-detects `railway.json` and uses the Dockerfile
+4. Set environment variables:
    - `DATABASE_URL` — Supabase Postgres URL
    - `SUPABASE_URL` — Supabase project URL
    - `SUPABASE_ANON_KEY` — Supabase anon key
    - `LLM_API_KEY` — OpenRouter API key
    - `LLM_BASE_URL` — `https://openrouter.ai/api/v1`
-   - `LLM_MODEL` — `poolside/laguna-s-2.1:free`
+   - `ANTHROPIC_MODEL` — LLM model identifier (e.g. `poolside/laguna-s-2.1:free`). Change this in `.claude/settings.json` to update the model everywhere.
    - `CORS_ORIGINS` — your Vercel frontend URL
 
 ## Project Structure

@@ -28,7 +28,12 @@ class LLMClient:
     ):
         self.api_key = api_key or os.getenv("LLM_API_KEY")
         self.base_url = base_url or os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-        self.model = model or os.getenv("LLM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+        self.model = (
+            model
+            or os.getenv("ANTHROPIC_MODEL")
+            or os.getenv("LLM_MODEL")
+            or "poolside/laguna-s-2.1:free"
+        )
         self.temperature = temperature
         self.max_retries = max_retries
         self.timeout = timeout

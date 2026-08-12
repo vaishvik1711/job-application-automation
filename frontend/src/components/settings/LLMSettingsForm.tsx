@@ -37,6 +37,16 @@ interface LLMSettingsFormProps {
   onSave?: () => void
 }
 
+/**
+ * Default model — read from the ANTHROPIC_MODEL env var (set in
+ * .claude/settings.json) so the frontend stays in sync with the backend.
+ * Falls back to the same value used in .claude/settings.json.
+ */
+const DEFAULT_MODEL =
+  process.env.ANTHROPIC_MODEL ||
+  import.meta.env.VITE_ANTHROPIC_MODEL ||
+  'poolside/laguna-s-2.1:free'
+
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI', description: 'GPT-4o, GPT-4, etc.' },
   { value: 'anthropic', label: 'Anthropic', description: 'Claude 3, Claude 3.5 Sonnet' },
@@ -55,7 +65,7 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
     resolver: zodResolver(LLM_SCHEMA),
     defaultValues: settings || {
       provider: 'anthropic',
-      model: 'claude-3-5-sonnet-20241022',
+      model: DEFAULT_MODEL,
       api_key: '',
       base_url: '',
       temperature: 0.7,
@@ -71,7 +81,7 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
 
     const providerDefaults: Record<string, string> = {
       openai: 'gpt-4o',
-      anthropic: 'claude-3-5-sonnet-20241022',
+      anthropic: DEFAULT_MODEL,
       local: 'llama3',
       nvidia: 'nvidia/nemotron-4-340b',
     }
@@ -163,12 +173,12 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
           <Input
             id="model"
             {...form.register('model')}
-            placeholder={provider === 'anthropic' ? 'claude-3-5-sonnet-20241022' : provider === 'openai' ? 'gpt-4o' : 'model-name'}
+            placeholder={provider === 'anthropic' ? DEFAULT_MODEL : provider === 'openai' ? 'gpt-4o' : 'model-name'}
             error={form.formState.errors.model?.message}
             onChange={(e) => handleFormChange({ model: e.target.value })}
           />
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-            {provider === 'anthropic' && 'Available models: claude-3-5-sonnet-20241022, claude-3-opus-20240229'}
+            {provider === 'anthropic' && `Default: ${DEFAULT_MODEL}`}
             {provider === 'openai' && 'Available models: gpt-4o, gpt-4-turbo, gpt-3.5-turbo'}
             {provider === 'nvidia' && 'Available models: nvidia/nemotron-4-340b-reward, nvidia/nemotron-4-340b'}
             {provider === 'local' && 'Enter your local model identifier'}

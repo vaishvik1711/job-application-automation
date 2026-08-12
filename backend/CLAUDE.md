@@ -1,9 +1,9 @@
 # AI Job Application Automation System - Project Configuration
 
 ## Model Configuration
-**This project uses `poolside/laguna-s-2.1:free` as the default model for all operations.**
+**This project uses the `ANTHROPIC_MODEL` environment variable as the single source of truth for the LLM model.**
 
-Do not change this model setting. All LLM interactions, agent operations, and code generation should use this model.
+The model is set in `.claude/settings.json` (`env.ANTHROPIC_MODEL`). Both the backend (`llm/client.py`) and the frontend (`LLMSettingsForm.tsx`) read it from the environment — no hardcoded model names in application code. To change the model, update `ANTHROPIC_MODEL` in `.claude/settings.json` (or `backend/.env` for deployment).
 
 ## Project Overview
 This is an AI-powered job application automation system with the following phases:
