@@ -8,9 +8,10 @@ RUN apt-get update && apt -no-install-recommends install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy Python requirements
-COPY ./requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy Python requirements from backend
+COPY backend/requirements.txt .
+COPY backend/api/requirements.txt ./api-requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -r api-requirements.txt
 
 # Copy backend code
 COPY backend/ ./
