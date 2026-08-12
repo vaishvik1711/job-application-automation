@@ -23,4 +23,5 @@ RUN mkdir -p data/master_resume logs
 EXPOSE 8000
 
 # Run the API server (Railway sets $PORT, fallback to 8000)
+# Use shell form so $PORT env var from Railway is properly expanded
 CMD ["sh", "-c", "python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
