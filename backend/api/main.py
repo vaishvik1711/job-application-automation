@@ -8,6 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from contextlib import asynccontextmanager
 
+import logging
+import socketio
+from api.websocket import sio
+
 from api.routes.health import router as health_router
 from api.routes.profile import router as profile_router
 from api.routes.jobs import router as jobs_router
@@ -20,25 +24,36 @@ from api.dependencies import engine, async_session
 from database import models as db_models
 from sqlalchemy import select
 
+logger = logging.getLogger(__name__)
+
+
 # Create tables on startup (in addition to Supabase migrations)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables if they don't exist
-    async with engine.begin() as conn:
-        await conn.run_sync(db_models.Base.metadata.create_all)
+    # Create tables if they don't exist — tolerate DB connection failures
+    # so the app can still start and serve health checks.
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(db_models.Base.metadata.create_all)
+    except Exception as e:
+        logger.warning("Database connection failed during startup: %s", e)
+        logger.warning("Tables will not be created until the database is reachable.")
 
     # Seed default matching config
-    async with async_session() as session:
-        result = await session.execute(select(db_models.MatchingConfig))
-        config = result.scalars().first()
-        if not config:
-            config = db_models.MatchingConfig(
-                default_weights={"skills": 30, "experience": 25, "education": 10, "location": 15, "keywords": 20},
-                auto_qualify_threshold=75.0,
-                min_skill_match=0.5,
-            )
-            session.add(config)
-            await session.flush()
+    try:
+        async with async_session() as session:
+            result = await session.execute(select(db_models.MatchingConfig))
+            config = result.scalars().first()
+            if not config:
+                config = db_models.MatchingConfig(
+                    default_weights={"skills": 30, "experience": 25, "education": 10, "location": 15, "keywords": 20},
+                    auto_qualify_threshold=75.0,
+                    min_skill_match=0.5,
+                )
+                session.add(config)
+                await session.flush()
+    except Exception as e:
+        logger.warning("Failed to seed matching config: %s", e)
 
     yield
 
@@ -78,6 +93,14 @@ async def root():
 @app.get("/api")
 async def api_root():
     return {"message": "Job Automation API", "version": "1.0.0"}
+
+
+# ---------------------------------------------------------------------------
+# Wrap the FastAPI app with the Socket.IO ASGI middleware so that a single
+# uvicorn process serves both REST routes and real-time WebSocket events.
+# The CORS origins mirror the FastAPI middleware above.
+# ---------------------------------------------------------------------------
+app = socketio.ASGIApp(sio, other_asgi_app=app)
 
 
 if __name__ == "__main__":

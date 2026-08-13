@@ -1,0 +1,57 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.example
+
+# Git
+.git
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js
+node_modules/
+.vercel/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build outputs
+dist/
+build/
+
+# Database files
+*.db
+*.db-journal
+logs/
+
+# Claude settings
+.claude/
+
+# Data files
+data/
+*.csv
+*.xlsx
+*.pdf
+*.docx
+*.doc
+*.html
