@@ -1,5 +1,8 @@
 {
   "build": {
     "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "ipv6EgressEnabled": true
   }
 }
