@@ -8,7 +8,7 @@ from api.schemas import JobSchema, PaginatedJobResponse, MatchDetailSchema, ApiR
 from api.dependencies import get_db_session
 from database.models import Job, JobMatch, JobStatus
 from database.repositories import RepositoryFactory
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter()
 
@@ -155,11 +155,12 @@ async def search_jobs(
         )
         await agent.close()
 
-        # Fetch jobs from DB — the agent saves them in its own session, so
-        # query the most recently discovered jobs rather than filtering by a
-        # pre-search timestamp (which suffers from session visibility issues).
+        # Fetch jobs discovered within the last hour (the agent saves jobs in
+        # its own session, so use a time window instead of a pre-search marker).
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
         stmt = (
             select(Job)
+            .where(Job.discovered_at >= one_hour_ago)
             .order_by(Job.discovered_at.desc())
             .limit(max_results * 5)
         )
