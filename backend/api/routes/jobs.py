@@ -120,7 +120,7 @@ async def search_jobs(
     """Search for jobs (uses DiscoveryAgent with real-time Socket.IO updates)."""
     from agents.discovery_agent import create_discovery_agent
     from api.websocket import emit_pipeline_update, emit_error
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     filters = request.get("filters", {})
     max_results = request.get("max_results_per_source", 50)
@@ -134,7 +134,7 @@ async def search_jobs(
         )
 
         agent = await create_discovery_agent()
-        search_before = datetime.now(timezone.utc)
+        search_before = datetime.utcnow()
         result = await agent.discover_jobs(
             filters=filters,
             limit_per_source=max_results,
