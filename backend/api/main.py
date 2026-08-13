@@ -101,16 +101,12 @@ async def api_root():
 # ---------------------------------------------------------------------------
 # Wrap the FastAPI app with the Socket.IO ASGI middleware so that a single
 # uvicorn process serves both REST routes and real-time WebSocket events.
-# The CORS origins mirror the FastAPI middleware above.
 #
-# IMPORTANT: we MUST pass cors_allowed_origins here. Without it the Socket.IO
-# layer intercepts OPTIONS preflight requests for non-Socket.IO routes and
-# returns a response WITHOUT CORS headers, causing cross-origin PATCH (and
-# any request with Content-Type: application/json) to fail with a silent
-# "network error" in the browser.
+# The Socket.IO wrapper passes non-Socket.IO requests (including OPTIONS
+# preflight) through to the FastAPI app, which already has CORS middleware
+# configured. No additional CORS configuration is needed here.
 # ---------------------------------------------------------------------------
-_sio_origins = os.getenv("CORS_ORIGINS", "*").split(",")
-app = socketio.ASGIApp(sio, other_asgi_app=app, cors_allowed_origins=_sio_origins)
+app = socketio.ASGIApp(sio, other_asgi_app=app)
 
 
 if __name__ == "__main__":
