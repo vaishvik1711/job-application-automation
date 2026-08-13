@@ -107,11 +107,11 @@ def main():
 
     # --- Step 3: Upload to Railway ---
     api_url = args.api_url.rstrip("/")
-    print(f"📤 Uploading to {api_url}/api/jobs/bulk-import ... ", end="", flush=True)
+    print(f"📤 Uploading to {api_url}/jobs/bulk-import ... ", end="", flush=True)
 
     try:
         resp = requests.post(
-            f"{api_url}/api/jobs/bulk-import",
+            f"{api_url}/jobs/bulk-import",
             json={"jobs": jobs, "source": "indeed"},
             timeout=120,
         )
@@ -144,9 +144,8 @@ def main():
     if imported > 0:
         print(f"\n🤖 Triggering auto-matching on {imported} jobs... ", end="", flush=True)
         try:
-            # Pre-fill by running a search with the keywords
             match_resp = requests.post(
-                f"{api_url}/api/jobs/search",
+                f"{api_url}/jobs/search",
                 json={
                     "filters": {
                         "primary_titles": [args.search],
@@ -161,7 +160,8 @@ def main():
                 matched = sum(1 for j in match_data.get("jobs", []) if j.get("match_score") is not None)
                 print(f"✅ {matched} jobs matched")
             else:
-                print(f"⚠️  Matching triggered but returned HTTP {match_resp.status_code}")
+                print(f"⚠️  Matching triggered but returned HTTP {match_resp.status_code} — "
+                      f"matching will happen automatically on next search")
         except Exception as e:
             print(f"⚠️  Matching attempt failed: {e}")
     else:

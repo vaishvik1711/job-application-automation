@@ -161,7 +161,7 @@ async def search_jobs(
         # Map frontend source names to backend source names.
         frontend_sources = filters.get("sources", [])
         backend_source_map = {
-            "indeed": "jobspy",
+            "indeed": "indeed",
             "linkedin": "jobspy",
             "jobbank": "jobbank",
         }
