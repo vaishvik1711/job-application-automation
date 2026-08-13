@@ -38,7 +38,8 @@ RUN pip install --no-cache-dir \
     "rich>=13.7.0" \
     "typer>=0.9.0" \
     "boto3>=1.34.0" \
-    "supabase>=2.3.0" && \
+    "supabase>=2.3.0" \
+    "openai>=1.0.0" && \
     python -c "import uvicorn; print('uvicorn OK:', uvicorn.__version__)" && \
     python -c "import fastapi; print('fastapi OK:', fastapi.__version__)"
 

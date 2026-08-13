@@ -129,23 +129,23 @@ async def test_llm(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Test LLM configuration."""
-    from llm.client import LLMClient, LLMConfig
+    from llm.client import LLMClient
 
     start = time.time()
 
     try:
-        client = LLMClient(LLMConfig(
-            provider=config.get("provider"),
-            model=config.get("model"),
+        client = LLMClient(
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
+            model=config.get("model"),
             temperature=config.get("temperature", 0.7),
             max_tokens=config.get("max_tokens", 4000),
-        ))
+        )
 
         # Simple test call
-        response = await client.chat_completion(
-            messages=[{"role": "user", "content": "Hello, this is a test."}],
+        response = await client.generate_text(
+            system_prompt="You are a helpful assistant.",
+            user_prompt="Hello, this is a test.",
         )
 
         latency = int((time.time() - start) * 1000)
