@@ -90,9 +90,26 @@ class ResumeParser:
         current_section = None
         section_order = 0
 
-        for i, para in enumerate(doc.paragraphs):
-            text = para.text.strip()
+        # First pass: collect all paragraph text in order, including table cell
+        # paragraphs.  Many resumes use Word tables for layout, and python-docx
+        # does NOT include table-cell content in doc.paragraphs.
+        all_paras: list[tuple[str, Paragraph | None]] = []
+        for para in doc.paragraphs:
+            all_paras.append((para.text, para))
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for para in cell.paragraphs:
+                        if para.text.strip():
+                            all_paras.append((para.text, para))
+
+        for text, para in all_paras:
+            text = text.strip()
             if not text:
+                # Preserve blank lines so downstream parsers (e.g.
+                # _parse_work_history) can split entries on \n\n boundaries.
+                if current_section:
+                    current_section.content += "\n"
                 continue
 
             full_text.append(text)
@@ -284,16 +301,28 @@ class ResumeParser:
             first_line = lines[0]
             # Pattern: Title at Company | Company - Title | Title, Company
             for pattern in [
-                r"^(.+?)\s+(?:at|@|,)\s+(.+?)(?:\s*[|\-]\s*(.+))?$",
+                r"^(.+?)\s+(?:at|@)\s+(.+?)(?:\s*[|\-]\s*(.+))?$",
                 r"^(.+?)\s+\|\s+(.+)$",
+                # Comma-separated: "Title, Company, 2023-Present"
+                r"^(.+?),\s*(.+?),\s*(\d{4}\s*[-–—]\s*(?:\d{4}|present|current))\s*$",
+                # Comma-separated without year: "Title, Company"
+                r"^(.+?),\s*([A-Z][A-Za-z .&]+)$",
             ]:
-                match = re.search(pattern, first_line)
+                match = re.search(pattern, first_line, re.IGNORECASE)
                 if match:
                     entry["title"] = match.group(1).strip()
                     entry["company"] = match.group(2).strip()
                     if match.lastindex >= 3 and match.group(3):
                         entry["location"] = match.group(3).strip()
                     break
+            # Fallback: if no pattern matched, treat the longest line as company
+            if not entry.get("title") and len(lines) > 1:
+                entry["title"] = lines[0]
+                # Look for a company-like line (starts with a capital letter, not a bullet)
+                for ln in lines[1:]:
+                    if ln and not ln.startswith(("•", "-", "·", "▪", "–", "*")) and ln[0].isupper():
+                        entry["company"] = ln
+                        break
 
             # Look for dates
             for line in lines:
@@ -341,6 +370,24 @@ class ResumeParser:
                             entry["year"] = parts[2]
                     else:
                         entry["degree"] = parts[0]
+                # Comma-separated: "Degree, Institution, Year" or "Institution, Degree"
+                elif "," in first_line:
+                    parts = [p.strip() for p in first_line.split(",")]
+                    # If there's a year in the last part, treat first=degree, middle=school, last=year
+                    year_match = re.search(r"(\d{4})", parts[-1])
+                    if year_match and len(parts) >= 2:
+                        entry["degree"] = parts[0]
+                        entry["school"] = parts[1]
+                        entry["year"] = year_match.group(1)
+                    elif len(parts) >= 2:
+                        # No year: guess which is degree vs institution
+                        # If first part looks like a degree (starts with B/M/P/A), it's the degree
+                        if parts[0][:1].upper() in ("B", "M", "P", "A", "D"):
+                            entry["degree"] = parts[0]
+                            entry["school"] = parts[1]
+                        else:
+                            entry["school"] = parts[0]
+                            entry["degree"] = parts[1]
                 else:
                     entry["degree"] = first_line
 
