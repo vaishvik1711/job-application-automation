@@ -74,15 +74,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include all routers
+# Include all routers — routes mount directly (no /api prefix) so the
+# frontend's VITE_API_URL + relative paths resolve correctly in production.
+# In dev, Vite's proxy on '/api' still works because '/api' is a standalone
+# info endpoint (see above), not a prefix.
 app.include_router(health_router)
-app.include_router(profile_router, prefix="/api")
-app.include_router(jobs_router, prefix="/api")
-app.include_router(matching_router, prefix="/api")
-app.include_router(resumes_router, prefix="/api")
-app.include_router(applications_router, prefix="/api")
-app.include_router(analytics_router, prefix="/api")
-app.include_router(settings_router, prefix="/api")
+app.include_router(profile_router)
+app.include_router(jobs_router)
+app.include_router(matching_router)
+app.include_router(resumes_router)
+app.include_router(applications_router)
+app.include_router(analytics_router)
+app.include_router(settings_router)
 
 
 @app.get("/")
