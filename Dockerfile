@@ -52,6 +52,7 @@ RUN mkdir -p backend/data/master_resume backend/logs
 RUN python -m playwright install --with-deps chromium 2>/dev/null || true
 
 # Run the API server using python -m uvicorn (not the bare uvicorn binary)
-# Using $PORT so Railway can set the port at runtime
+# The build context is backend/, so api.main:app loads backend/api/main.py
+# Using shell form so ${PORT:-8000} is expanded by the shell at runtime
 ENV PYTHONPATH=/app
-CMD python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
