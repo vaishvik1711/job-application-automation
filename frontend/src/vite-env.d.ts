@@ -20,3 +20,11 @@ declare namespace NodeJS {
     ANTHROPIC_MODEL?: string
   }
 }
+
+/**
+ * The vite.config.ts exposes `process.env` via `define`, so `process` is
+ * available at build time but not declared as a browser global.
+ */
+declare const process: {
+  env: NodeJS.ProcessEnv
+}
