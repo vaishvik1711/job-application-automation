@@ -32,7 +32,7 @@ class LLMClient:
             model
             or os.getenv("ANTHROPIC_MODEL")
             or os.getenv("LLM_MODEL")
-            or "poolside/laguna-s-2.1:free"
+            or "deepseek/deepseek-v4-flash"
         )
         self.temperature = temperature
         self.max_retries = max_retries

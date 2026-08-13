@@ -43,9 +43,8 @@ interface LLMSettingsFormProps {
  * Falls back to the same value used in .claude/settings.json.
  */
 const DEFAULT_MODEL =
-  process.env.ANTHROPIC_MODEL ||
   import.meta.env.VITE_ANTHROPIC_MODEL ||
-  'poolside/laguna-s-2.1:free'
+  'deepseek/deepseek-v4-flash'
 
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI', description: 'GPT-4o, GPT-4, etc.' },

@@ -1,4 +1,5 @@
 """Settings API routes."""
+import os
 import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -10,10 +11,12 @@ from typing import Optional
 
 router = APIRouter()
 
+_DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "deepseek/deepseek-v4-flash")
+
 DEFAULT_SETTINGS = {
     "llm": {
         "provider": "openai",
-        "model": "gpt-4",
+        "model": _DEFAULT_MODEL,
         "api_key": None,
         "base_url": None,
         "temperature": 0.7,
