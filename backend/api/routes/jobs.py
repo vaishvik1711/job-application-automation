@@ -120,7 +120,6 @@ async def search_jobs(
     """Search for jobs (uses DiscoveryAgent with real-time Socket.IO updates)."""
     from agents.discovery_agent import create_discovery_agent
     from api.websocket import emit_pipeline_update, emit_error
-    from datetime import datetime
 
     filters = request.get("filters", {})
     max_results = request.get("max_results_per_source", 50)
@@ -133,18 +132,34 @@ async def search_jobs(
             message="Initializing job search agent...",
         )
 
+        # Map frontend filter format to the format expected by job sources.
+        # The generate-filters endpoint provides:
+        #   primary_titles – actual job titles from the profile (e.g., "Data Analyst")
+        #   keywords – individual skills (e.g., "SQL", "Python")
+        # Job sources search by title first, so primary_titles is what produces
+        # relevant results; keywords/skills become supplementary search terms.
+        search_filters = dict(filters)
+        if not search_filters.get("primary_titles"):
+            keywords = filters.get("keywords", [])
+            if isinstance(keywords, str):
+                keywords = [keywords]
+            # Without job titles from the filter generator, use the first
+            # few keywords as title-like search terms.
+            search_filters["primary_titles"] = keywords[:5]
+            search_filters["secondary_titles"] = []
+
         agent = await create_discovery_agent()
-        search_before = datetime.utcnow()
         result = await agent.discover_jobs(
-            filters=filters,
+            filters=search_filters,
             limit_per_source=max_results,
         )
         await agent.close()
 
-        # Fetch the newly discovered jobs from the DB (ordered by most recent)
+        # Fetch jobs from DB — the agent saves them in its own session, so
+        # query the most recently discovered jobs rather than filtering by a
+        # pre-search timestamp (which suffers from session visibility issues).
         stmt = (
             select(Job)
-            .where(Job.discovered_at >= search_before)
             .order_by(Job.discovered_at.desc())
             .limit(max_results * 5)
         )

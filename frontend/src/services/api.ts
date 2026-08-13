@@ -128,7 +128,7 @@ export const parseResume = (fileId: string, onProgress?: (progress: number) => v
   profileApi.parseResume(fileId, onProgress).then((res) => res.data.data)
 
 export const generateJobFilters = () =>
-  api.post<ApiResponse<{filters: {keywords: string[]; locations: string[]; job_types: string[]; experience_levels: string[]; sources: string[]; remote_only: boolean; posted_within_days: number}}>>('/profile/generate-filters').then((res) => res.data.data)
+  api.post<ApiResponse<{filters: {keywords: string[]; primary_titles?: string[]; locations: string[]; job_types: string[]; experience_levels: string[]; sources: string[]; remote_only: boolean; posted_within_days: number}}>>('/profile/generate-filters').then((res) => res.data.data)
 
 // Jobs API
 export const jobsApi = {

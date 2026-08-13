@@ -313,6 +313,7 @@ export interface Application {
 // Search & Filter Types
 export interface JobSearchFilters {
   keywords?: string[]
+  primary_titles?: string[]
   locations?: string[]
   job_types?: JobType[]
   experience_levels?: ExperienceLevel[]

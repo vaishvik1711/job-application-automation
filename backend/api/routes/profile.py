@@ -532,6 +532,7 @@ async def generate_filters(
 
     filters = {
         "keywords": keywords,
+        "primary_titles": (profile.job_titles or [])[:5],
         "locations": locations,
         "job_types": job_types,
         "experience_levels": list(set(experience_levels)),

@@ -83,6 +83,7 @@ export function Profile() {
             if (filters) {
               setFilters({
                 keywords: filters.keywords,
+                primary_titles: filters.primary_titles,
                 locations: filters.locations,
                 job_types: filters.job_types as any,
                 experience_levels: filters.experience_levels as any,
