@@ -177,10 +177,10 @@ async def search_jobs(
         # --- Phase 1: Discover jobs ---
         # Split sources: only scrape JobBank from Railway (Indeed/LinkedIn blocked).
         # Indeed jobs must be pre-imported via run_indeed_scraper.py or DB.
-        scrapable_sources = (
-            [s for s in backend_sources if s != "indeed"]
-            if backend_sources else None
-        )
+        scrapable_sources = None
+        if backend_sources:
+            filtered = [s for s in backend_sources if s != "indeed"]
+            scrapable_sources = filtered if filtered else None
         agent = await create_discovery_agent()
         result = await agent.discover_jobs(
             filters=search_filters,
@@ -218,8 +218,8 @@ async def search_jobs(
                     .order_by(Job.discovered_at.desc())
                     .limit(per_source_limit)
                 )
-                result = await session.execute(stmt)
-                all_jobs.extend(result.scalars().all())
+                db_result = await session.execute(stmt)
+                all_jobs.extend(db_result.scalars().all())
             # Deduplicate by id while preserving order
             seen = set()
             jobs = []
@@ -234,8 +234,8 @@ async def search_jobs(
                 .order_by(Job.discovered_at.desc())
                 .limit(max_results * 5)
             )
-            result = await session.execute(stmt)
-            jobs = result.scalars().all()
+            db_result = await session.execute(stmt)
+            jobs = db_result.scalars().all()
 
         # --- Phase 2: Auto-match against profile ---
         job_ids = [j.id for j in jobs if j.id]
