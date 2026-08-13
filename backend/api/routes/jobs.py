@@ -199,20 +199,43 @@ async def search_jobs(
         # Fetch jobs from DB — filter by source if user selected specific sources.
         # Use a wider lookback for pre-imported sources (Indeed) since they aren't scraped live.
         one_hour_ago = datetime.utcnow() - timedelta(hours=7 * 24)  # 7 days
-        db_filters = [Job.discovered_at >= one_hour_ago]
         if backend_sources:
-            db_source_filters = [
-                Job.source.like(f"{bs}%") for bs in backend_sources
-            ]
-            db_filters.append(or_(*db_source_filters))
-        stmt = (
-            select(Job)
-            .where(*db_filters)
-            .order_by(Job.discovered_at.desc())
-            .limit(max_results * 5)
-        )
-        db_result = await session.execute(stmt)
-        jobs = db_result.scalars().all()
+            # Query each source with its own limit for fair distribution.
+            all_jobs = []
+            per_source_limit = max_results * 3
+            # Also match jobspy_indeed when querying for indeed (legacy jobs)
+            source_aliases = {
+                "indeed": ["indeed", "jobspy_indeed"],
+            }
+            for bs in backend_sources:
+                bs_patterns = source_aliases.get(bs, [bs])
+                stmt = (
+                    select(Job)
+                    .where(
+                        Job.discovered_at >= one_hour_ago,
+                        or_(*[Job.source.like(f"{p}%") for p in bs_patterns])
+                    )
+                    .order_by(Job.discovered_at.desc())
+                    .limit(per_source_limit)
+                )
+                result = await session.execute(stmt)
+                all_jobs.extend(result.scalars().all())
+            # Deduplicate by id while preserving order
+            seen = set()
+            jobs = []
+            for j in all_jobs:
+                if j.id not in seen:
+                    seen.add(j.id)
+                    jobs.append(j)
+        else:
+            stmt = (
+                select(Job)
+                .where(Job.discovered_at >= one_hour_ago)
+                .order_by(Job.discovered_at.desc())
+                .limit(max_results * 5)
+            )
+            result = await session.execute(stmt)
+            jobs = result.scalars().all()
 
         # --- Phase 2: Auto-match against profile ---
         job_ids = [j.id for j in jobs if j.id]
