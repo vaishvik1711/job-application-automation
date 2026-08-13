@@ -1,0 +1,17 @@
+# Exclude these from any wrangler-based deployment
+node_modules
+backend
+supabase
+logs
+output
+jobs
+.git
+.gitignore
+*.md
+*.py
+*.txt
+requirements.txt
+Dockerfile
+Dockerfile*
+railway.json
+main.py

@@ -9,7 +9,7 @@ A full-stack AI-powered job application automation system with a React frontend 
 - **Database**: Supabase Postgres
 - **File Storage**: Supabase Storage
 - **LLM**: OpenRouter (poolside/laguna-s-2.1:free)
-- **Deployment**: Vercel (frontend) + Railway (backend)
+- **Deployment**: Cloudflare Pages (frontend) + Railway (backend)
 
 ## Getting Started
 
@@ -61,16 +61,17 @@ The backend (`llm/client.py`) and frontend (`LLMSettingsForm.tsx`) both read thi
 3. Create a `resumes` storage bucket
 4. Copy the project URL, anon key, and database connection string
 
-### Frontend Deployment (Vercel)
+### Frontend Deployment (Cloudflare Pages)
+Deploy via the Cloudflare dashboard (see [DEPLOYMENT.md](DEPLOYMENT.md) for full step-by-step) or:
 ```bash
 cd frontend
-vercel --prod
+npx wrangler pages deploy dist
 ```
-Set environment variables in Vercel project settings:
-- `VITE_API_URL` — backend URL on Render.com
+Set environment variables in Cloudflare Pages project settings:
+- `VITE_API_URL` — backend URL on Railway
 - `VITE_SUPABASE_URL` — Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` — Supabase anon key
-- `ANTHROPIC_MODEL` — LLM model identifier (e.g. `poolside/laguna-s-2.1:free`). See [Model Configuration](#model-configuration) below.
+- `VITE_ANTHROPIC_MODEL` — LLM model identifier (e.g. `poolside/laguna-s-2.1:free`). See [Model Configuration](#model-configuration) below.
 
 ### Backend Deployment (Railway)
 1. Create a project at [railway.app](https://railway.app)
@@ -108,7 +109,9 @@ Set environment variables in Vercel project settings:
 │   └── orchestration/ # Pipeline orchestration
 ├── supabase/
 │   └── migrations/    # Database migration SQL files
-└── vercel.json        # Vercel frontend config
+└── frontend/public/   # Static assets + Cloudflare config
+    ├── _redirects    # SPA routing fallback
+    └── _headers      # Security headers
 ```
 
 ## License
