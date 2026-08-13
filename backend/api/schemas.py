@@ -3,7 +3,7 @@ Pydantic schemas for the API, matching frontend types.
 """
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, RootModel, field_validator
 
 
 # ============ Profile Schemas ============
@@ -352,8 +352,8 @@ class JobSourceSettingsSchema(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
-class JobSourceSettingsConfigSchema(BaseModel):
-    __root__: Dict[str, JobSourceSettingsSchema] = Field(default_factory=dict)
+class JobSourceSettingsConfigSchema(RootModel[Dict[str, JobSourceSettingsSchema]]):
+    pass
 
 
 class MatchingSettingsSchema(BaseModel):
