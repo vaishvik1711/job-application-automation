@@ -17,7 +17,7 @@ A full-stack AI-powered job application automation system with a React frontend 
 - Node.js 18+
 - Python 3.12+
 - Supabase account
-- Render.com account (or other Python hosting)
+- Railway account (for backend hosting)
 
 ### Frontend Development
 ```bash
@@ -77,6 +77,8 @@ Set environment variables in Cloudflare Pages project settings:
 1. Create a project at [railway.app](https://railway.app)
 2. Connect your GitHub repo
 3. Railway auto-detects `railway.json` and uses the Dockerfile
+
+> **Note**: When you push a new commit, Cloudflare Pages will automatically redeploy. The fix to `_redirects` (adding `!`) ensures SPA routing works on direct navigation.
 4. Set environment variables:
    - `DATABASE_URL` — Supabase Postgres URL
    - `SUPABASE_URL` — Supabase project URL
@@ -84,7 +86,7 @@ Set environment variables in Cloudflare Pages project settings:
    - `LLM_API_KEY` — OpenRouter API key
    - `LLM_BASE_URL` — `https://openrouter.ai/api/v1`
    - `ANTHROPIC_MODEL` — LLM model identifier (e.g. `poolside/laguna-s-2.1:free`). Change this in `.claude/settings.json` to update the model everywhere.
-   - `CORS_ORIGINS` — your Vercel frontend URL
+   - `CORS_ORIGINS` — your Cloudflare Pages frontend URL (e.g. `https://job-application-automation.pages.dev`)
 
 ## Project Structure
 ```
