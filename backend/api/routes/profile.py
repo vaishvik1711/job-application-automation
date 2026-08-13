@@ -35,6 +35,89 @@ def _parse_resume_from_bytes(file_content: bytes, filename: str):
         os.unlink(tmp_path)
 
 
+def _parsed_resume_to_profile_dict(parsed) -> dict:
+    """Convert a ParsedResume dataclass into the CandidateProfile dict shape the
+    frontend forms expect (personal_info, skills, experience, education, certifications)."""
+    ci = getattr(parsed, "contact_info", {}) or {}
+    summary = getattr(parsed, "summary", "") or ""
+
+    # --- personal_info ---
+    personal_info = {
+        "full_name": ci.get("name", ""),
+        "email": ci.get("email", ""),
+        "phone": ci.get("phone", ""),
+        "location": ci.get("location", ""),
+        "linkedin": ci.get("linkedin", ""),
+        "github": ci.get("github", ""),
+        "portfolio": ci.get("portfolio", ""),
+        "website": ci.get("website", ""),
+        "twitter": "",
+        "summary": summary,
+    }
+
+    # --- skills (convert plain strings to Skill[] with a default category) ---
+    raw_skills = list(getattr(parsed, "technical_skills", []) or [])
+    raw_skills.extend(
+        s for s in (getattr(parsed, "skills", []) or [])
+        if s not in raw_skills
+    )
+    skills = [{"name": s, "category": "Programming Languages", "proficiency": 3} for s in raw_skills]
+
+    # --- experience ---
+    experience = []
+    for wh in getattr(parsed, "work_history", []) or []:
+        bullets = wh.get("bullets", [])
+        if isinstance(bullets, list):
+            description = "\n".join(bullets)
+        else:
+            description = bullets or ""
+        tech = wh.get("technologies", []) or []
+        experience.append({
+            "company": wh.get("company", ""),
+            "title": wh.get("title", ""),
+            "location": wh.get("location", ""),
+            "start_date": wh.get("start_date", ""),
+            "end_date": wh.get("end_date", ""),
+            "current": str(wh.get("end_date", "")).lower() in ("present", "current"),
+            "description": description,
+            "technologies": tech,
+        })
+
+    # --- education ---
+    education = []
+    for ed in getattr(parsed, "education", []) or []:
+        education.append({
+            "institution": ed.get("school", ed.get("institution", "")),
+            "degree": ed.get("degree", ""),
+            "field_of_study": ed.get("field_of_study", ""),
+            "location": ed.get("location", ""),
+            "start_date": ed.get("start_date", ""),
+            "end_date": ed.get("year", ed.get("end_date", "")),
+            "gpa": ed.get("gpa", ""),
+        })
+
+    # --- certifications ---
+    certifications = []
+    for cert in getattr(parsed, "certifications", []) or []:
+        certifications.append({
+            "name": cert.get("name", ""),
+            "issuer": cert.get("issuer", cert.get("organization", "")),
+            "date_obtained": cert.get("year", cert.get("date_obtained", "")),
+            "expiry_date": cert.get("expiry_date", ""),
+            "credential_id": cert.get("credential_id", ""),
+            "credential_url": cert.get("url", ""),
+        })
+
+    return {
+        "personal_info": personal_info,
+        "skills": skills,
+        "experience": experience,
+        "education": education,
+        "certifications": certifications,
+        "additional_experience": [],
+    }
+
+
 @router.get("/profile", response_model=ApiResponse)
 async def get_profile(session: AsyncSession = Depends(get_db_session)):
     """Get the candidate profile."""
@@ -151,12 +234,15 @@ async def upload_resume(
             detail=f"Failed to parse resume: {str(e)}",
         )
 
+    # Convert ParsedResume dataclass to the CandidateProfile shape the frontend expects
+    profile_data = _parsed_resume_to_profile_dict(parsed)
+
     return ApiResponse(data={
         "file_id": file_id,
         "filename": file.filename,
         "size": len(file_content),
         "url": file_url,
-        "profile": parsed,
+        "profile": profile_data,
     })
 
 
@@ -176,9 +262,10 @@ async def parse_resume_endpoint(
         )
 
     parsed = _parse_resume_from_bytes(res, file_id)
+    profile_data = _parsed_resume_to_profile_dict(parsed)
 
     return ApiResponse(data={
-        "profile": parsed,
+        "profile": profile_data,
         "file_id": file_id,
         "confidence": 0.95,
         "extracted_fields": {},
