@@ -31,3 +31,4 @@ pytest-cov>=4.1.0
 pytest-mock>=3.12.0
 requests>=2.32.0
 python-socketio[asyncio]>=5.12.0
+email-validator>=2.1.0
