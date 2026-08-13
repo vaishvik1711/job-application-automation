@@ -175,11 +175,17 @@ async def search_jobs(
             backend_sources = list(mapped) if mapped else None
 
         # --- Phase 1: Discover jobs ---
+        # Split sources: only scrape JobBank from Railway (Indeed/LinkedIn blocked).
+        # Indeed jobs must be pre-imported via run_indeed_scraper.py or DB.
+        scrapable_sources = (
+            [s for s in backend_sources if s != "indeed"]
+            if backend_sources else None
+        )
         agent = await create_discovery_agent()
         result = await agent.discover_jobs(
             filters=search_filters,
             limit_per_source=max_results,
-            sources=backend_sources,
+            sources=scrapable_sources,
         )
         await agent.close()
 
@@ -191,7 +197,8 @@ async def search_jobs(
         )
 
         # Fetch jobs from DB — filter by source if user selected specific sources.
-        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        # Use a wider lookback for pre-imported sources (Indeed) since they aren't scraped live.
+        one_hour_ago = datetime.utcnow() - timedelta(hours=7 * 24)  # 7 days
         db_filters = [Job.discovered_at >= one_hour_ago]
         if backend_sources:
             db_source_filters = [
