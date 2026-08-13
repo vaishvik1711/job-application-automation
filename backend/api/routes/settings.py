@@ -48,9 +48,9 @@ DEFAULT_SETTINGS = {
 }
 
 
-def _get_setting(session: AsyncSession, key: str, default: any = None) -> any:
+async def _get_setting(session: AsyncSession, key: str, default: any = None) -> any:
     """Get a setting value from the database."""
-    result = session.execute(
+    result = await session.execute(
         select(AppSettings.value).where(AppSettings.key == key)
     )
     row = result.first()
@@ -59,10 +59,10 @@ def _get_setting(session: AsyncSession, key: str, default: any = None) -> any:
     return default
 
 
-def _set_setting(session: AsyncSession, key: str, value: any):
+async def _set_setting(session: AsyncSession, key: str, value: any):
     """Set a setting value in the database."""
     stmt = select(AppSettings).where(AppSettings.key == key)
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     setting = result.scalars().first()
 
     if setting:
@@ -77,10 +77,10 @@ async def get_settings(session: AsyncSession = Depends(get_db_session)):
     """Get all application settings."""
     from api.routes.resumes import RESUME_TEMPLATES
 
-    llm = _get_setting(session, "llm", DEFAULT_SETTINGS["llm"])
-    job_sources = _get_setting(session, "job_sources", {})
-    matching = _get_setting(session, "matching", DEFAULT_SETTINGS["matching"])
-    notifications = _get_setting(session, "notifications", DEFAULT_SETTINGS["notifications"])
+    llm = await _get_setting(session, "llm", DEFAULT_SETTINGS["llm"])
+    job_sources = await _get_setting(session, "job_sources", {})
+    matching = await _get_setting(session, "matching", DEFAULT_SETTINGS["matching"])
+    notifications = await _get_setting(session, "notifications", DEFAULT_SETTINGS["notifications"])
 
     return ApiResponse(data={
         "llm": llm,
@@ -98,21 +98,21 @@ async def update_settings(
 ):
     """Update application settings."""
     if "llm" in data:
-        _set_setting(session, "llm", data["llm"])
+        await _set_setting(session, "llm", data["llm"])
     if "job_sources" in data:
-        _set_setting(session, "job_sources", data["job_sources"])
+        await _set_setting(session, "job_sources", data["job_sources"])
     if "matching" in data:
-        _set_setting(session, "matching", data["matching"])
+        await _set_setting(session, "matching", data["matching"])
     if "notifications" in data:
-        _set_setting(session, "notifications", data["notifications"])
+        await _set_setting(session, "notifications", data["notifications"])
 
     await session.flush()
 
     # Return updated settings
-    llm = _get_setting(session, "llm", DEFAULT_SETTINGS["llm"])
-    job_sources = _get_setting(session, "job_sources", {})
-    matching = _get_setting(session, "matching", DEFAULT_SETTINGS["matching"])
-    notifications = _get_setting(session, "notifications", DEFAULT_SETTINGS["notifications"])
+    llm = await _get_setting(session, "llm", DEFAULT_SETTINGS["llm"])
+    job_sources = await _get_setting(session, "job_sources", {})
+    matching = await _get_setting(session, "matching", DEFAULT_SETTINGS["matching"])
+    notifications = await _get_setting(session, "notifications", DEFAULT_SETTINGS["notifications"])
 
     return ApiResponse(data={
         "llm": llm,
