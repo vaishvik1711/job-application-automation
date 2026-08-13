@@ -363,6 +363,109 @@ async def get_job_stats(session: AsyncSession = Depends(get_db_session)):
     })
 
 
+@router.post("/jobs/bulk-import", response_model=ApiResponse)
+async def bulk_import_jobs(
+    request: dict,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Bulk import pre-scraped jobs (e.g., from local Indeed scraper).
+    Accepts a list of job objects with fields matching RawJob format.
+    """
+    from utils.hashing import content_hash, job_fingerprint
+    from database.models import RemoteType, EmploymentType, JobStatus, JobSource
+
+    items = request.get("jobs", [])
+    source_name = request.get("source", "indeed")
+    if not items:
+        return ApiResponse(data={"imported": 0, "total": 0, "errors": []})
+
+    imported = 0
+    errors = []
+
+    for raw in items:
+        try:
+            title = (raw.get("title") or "").strip()
+            company = (raw.get("company") or "").strip()
+            if not title or not company:
+                continue
+
+            url = raw.get("url") or raw.get("source_url") or ""
+            # Check for existing job by URL
+            if url:
+                existing = await session.execute(
+                    select(Job).where(Job.canonical_url == url).limit(1)
+                )
+                if existing.scalars().first():
+                    continue
+
+            # Build content hash for dedup
+            desc = (raw.get("description") or "")[:10000]
+            reqs = (raw.get("requirements") or "")
+            ch = content_hash(f"{desc}{reqs}")
+            location = raw.get("location") or ""
+            fingerprint = job_fingerprint(company, title, location)
+
+            # Normalize remote / employment types
+            remote_raw = (raw.get("remote_type") or "on_site").lower()
+            remote_type = RemoteType.REMOTE if "remote" in remote_raw else RemoteType.HYBRID if "hybrid" in remote_raw else RemoteType.ON_SITE
+            emp_raw = (raw.get("employment_type") or "full_time").lower()
+            if "contract" in emp_raw:
+                emp_type = EmploymentType.CONTRACT
+            elif "part" in emp_raw:
+                emp_type = EmploymentType.PART_TIME
+            elif "intern" in emp_raw:
+                emp_type = EmploymentType.INTERNSHIP
+            else:
+                emp_type = EmploymentType.FULL_TIME
+
+            job = Job(
+                canonical_url=url or f"{source_name}:{raw.get('source_job_id', '')}:{ch[:16]}",
+                source=f"indeed",
+                title=title,
+                company=company,
+                location=location,
+                remote_type=remote_type,
+                employment_type=emp_type,
+                date_posted=datetime.utcnow(),
+                salary_min=raw.get("salary_min"),
+                salary_max=raw.get("salary_max"),
+                currency=raw.get("currency", "CAD"),
+                description=desc,
+                requirements=reqs[:5000] or None,
+                skills=raw.get("skills") or [],
+                tools=raw.get("tools") or [],
+                application_url=url,
+                content_hash=ch,
+                status=JobStatus.DISCOVERED,
+            )
+            session.add(job)
+            await session.flush()
+
+            # Add source reference
+            source_ref = JobSource(
+                job_id=job.id,
+                source="indeed",
+                source_url=url,
+                source_job_id=str(raw.get("source_job_id", "")),
+            )
+            session.add(source_ref)
+            imported += 1
+
+        except Exception as e:
+            errors.append(str(e))
+            continue
+
+    await session.commit()
+    logger.info(f"Bulk imported {imported}/{len(items)} Indeed jobs")
+
+    return ApiResponse(data={
+        "imported": imported,
+        "total": len(items),
+        "errors": errors[:10],
+    })
+
+
 @router.get("/jobs/export", response_class=BytesIO if False else None)
 async def export_jobs(
     job_ids: Optional[str] = None,
