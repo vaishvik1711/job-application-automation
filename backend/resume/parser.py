@@ -142,6 +142,12 @@ class ResumeParser:
         if current_section:
             sections.append(current_section)
 
+        # Merge sub-sections (level > 1) into their parent level-1 section.
+        # Resumes often use "Heading 2" style for job titles / school names,
+        # which the header-detection logic treats as separate sections — but
+        # they contain the parent section's actual content.
+        sections = self._merge_subsections(sections)
+
         parsed = ParsedResume(
             raw_text="\n".join(full_text),
             sections=sections,
@@ -201,6 +207,36 @@ class ResumeParser:
             elif "heading 3" in para.style.name.lower():
                 return 3
         return 1
+
+    @staticmethod
+    def _merge_subsections(sections: List[ResumeSection]) -> List[ResumeSection]:
+        """Merge child sections (level > 1) into their parent level-1 section.
+
+        Resumes commonly use Heading 2 for job titles and school names.  The
+        section-detection logic treats these as separate sections, which orphans
+        the actual Experience / Education content.  This step merges them back
+        in so the parent section has the full content to parse.
+        """
+        merged: list[ResumeSection] = []
+        parent: ResumeSection | None = None
+
+        for sec in sections:
+            if sec.level <= 1:
+                if parent is not None:
+                    merged.append(parent)
+                parent = sec
+            elif parent is not None:
+                # Sub-section: fold its name + content into the parent.
+                # Insert a blank line before the sub-section name so downstream
+                # parsers (e.g. _parse_work_history) can split on \n\n boundaries.
+                parent.content += f"\n\n{sec.name}\n{sec.content}"
+            else:
+                merged.append(sec)
+
+        if parent is not None:
+            merged.append(parent)
+
+        return merged
 
     def _parse_sections(self, parsed: ParsedResume):
         """Parse structured content from sections."""
@@ -303,6 +339,8 @@ class ResumeParser:
             for pattern in [
                 r"^(.+?)\s+(?:at|@)\s+(.+?)(?:\s*[|\-]\s*(.+))?$",
                 r"^(.+?)\s+\|\s+(.+)$",
+                # Extract company from parens: "Title (Company) Date"
+                r"^(.+?)\(([^)]+)\)\s*.*?(\d{4}\s*[-–—]\s*(?:\d{4}|present|current))",
                 # Comma-separated: "Title, Company, 2023-Present"
                 r"^(.+?),\s*(.+?),\s*(\d{4}\s*[-–—]\s*(?:\d{4}|present|current))\s*$",
                 # Comma-separated without year: "Title, Company"
@@ -313,12 +351,23 @@ class ResumeParser:
                     entry["title"] = match.group(1).strip()
                     entry["company"] = match.group(2).strip()
                     if match.lastindex >= 3 and match.group(3):
-                        entry["location"] = match.group(3).strip()
+                        # Only use group 3 as location if it doesn't look like a date
+                        g3 = match.group(3).strip()
+                        if not re.match(r"\d{4}", g3):
+                            entry["location"] = g3
                     break
-            # Fallback: if no pattern matched, treat the longest line as company
-            if not entry.get("title") and len(lines) > 1:
-                entry["title"] = lines[0]
-                # Look for a company-like line (starts with a capital letter, not a bullet)
+            # Fallback: extract company from parentheses in the first line.
+            # Handles formats like "Title (Company)" where a date may include
+            # month names (e.g. "Oct 2022 – June 2023") that the regex above
+            # cannot parse.
+            if not entry.get("title"):
+                paren_m = re.search(r"\(([^)]+)\)", first_line)
+                if paren_m:
+                    entry["company"] = paren_m.group(1).strip()
+                    entry["title"] = first_line[:paren_m.start()].strip()
+            # Last resort: use the first non-bullet line as company
+            if not entry.get("company") and len(lines) > 1:
+                entry["title"] = entry.get("title") or lines[0]
                 for ln in lines[1:]:
                     if ln and not ln.startswith(("•", "-", "·", "▪", "–", "*")) and ln[0].isupper():
                         entry["company"] = ln
@@ -326,7 +375,15 @@ class ResumeParser:
 
             # Look for dates
             for line in lines:
+                # "YYYY-YYYY" or "YYYY-Present"
                 date_match = re.search(r"(\d{4})\s*[-–—]\s*(\d{4}|present|current)", line, re.I)
+                if not date_match:
+                    # "Month YYYY – Month YYYY" or "Month YYYY – YYYY"
+                    date_match = re.search(
+                        r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+"
+                        r"(\d{4})\s*[-–—]\s*"
+                        r"(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+)?"
+                        r"(\d{4}|present|current)", line, re.I)
                 if date_match:
                     entry["start_date"] = date_match.group(1)
                     entry["end_date"] = date_match.group(2)
@@ -359,9 +416,16 @@ class ResumeParser:
             lines = [l.strip() for l in block.split("\n") if l.strip()]
 
             if lines:
-                # Try to parse "Degree | School | Year" format
                 first_line = lines[0]
-                if "|" in first_line:
+                # "School (Degree) Year" format — common in resumes
+                paren_m = re.search(r"^(.+?)\((.+?)\)\s*(\d{4}.*)?$", first_line)
+                if paren_m:
+                    entry["school"] = paren_m.group(1).strip()
+                    entry["degree"] = paren_m.group(2).strip()
+                    if paren_m.group(3):
+                        entry["year"] = paren_m.group(3).strip()
+                # "Degree | School | Year" format
+                elif "|" in first_line:
                     parts = [p.strip() for p in first_line.split("|")]
                     if len(parts) >= 2:
                         entry["degree"] = parts[0]
@@ -373,15 +437,12 @@ class ResumeParser:
                 # Comma-separated: "Degree, Institution, Year" or "Institution, Degree"
                 elif "," in first_line:
                     parts = [p.strip() for p in first_line.split(",")]
-                    # If there's a year in the last part, treat first=degree, middle=school, last=year
-                    year_match = re.search(r"(\d{4})", parts[-1])
+                    year_match = re.search(r"(\d{4})", parts[-1]) if parts else None
                     if year_match and len(parts) >= 2:
                         entry["degree"] = parts[0]
                         entry["school"] = parts[1]
                         entry["year"] = year_match.group(1)
                     elif len(parts) >= 2:
-                        # No year: guess which is degree vs institution
-                        # If first part looks like a degree (starts with B/M/P/A), it's the degree
                         if parts[0][:1].upper() in ("B", "M", "P", "A", "D"):
                             entry["degree"] = parts[0]
                             entry["school"] = parts[1]
@@ -406,7 +467,8 @@ class ResumeParser:
     def _parse_skills(self, text: str) -> List[str]:
         """Parse skills list."""
         skills = []
-        # Split by common delimiters
+        # Split by common delimiters (comma first — skills on separate lines
+        # are still comma-separated within each line).
         for delimiter in [",", ";", "•", "·", "\n", "|", "/"]:
             if delimiter in text:
                 skills = [s.strip() for s in text.split(delimiter) if s.strip()]
@@ -414,9 +476,23 @@ class ResumeParser:
         else:
             skills = [text.strip()] if text.strip() else []
 
-        # Clean up
+        # Further split any item that still contains a newline (e.g.
+        # "\nPython Libraries: NumPy" survived the comma split).
+        flat = []
+        for s in skills:
+            for part in s.split("\n"):
+                p = part.strip()
+                if p:
+                    flat.append(p)
+        skills = flat
+
+        # Remove category-prefix artifacts like "Programming Languages: SQL"
+        # → extract just "SQL".
         cleaned = []
         for skill in skills:
+            # Strip category prefix: "Programming Languages: SQL" → "SQL"
+            if ": " in skill:
+                skill = skill.split(": ", 1)[1].strip()
             skill = re.sub(r"^[\-\•\·\▪\*\s]+", "", skill)
             skill = skill.strip()
             if skill and len(skill) > 1:

@@ -74,6 +74,15 @@ def _parsed_resume_to_profile_dict(parsed) -> dict:
                     ci["name"] = line
                     break
 
+        # Extract location from the contact-info line (pipe-separated: "City, Province | phone | email")
+        if not ci.get("location"):
+            for line in lines:
+                if "|" in line and any(kw in line.lower() for kw in ["@", "phone", "mobile"]):
+                    loc_part = line.split("|")[0].strip()
+                    if loc_part and not any(k in loc_part.lower() for k in ("@", "http")):
+                        ci["location"] = loc_part
+                        break
+
     # --- personal_info ---
     personal_info = {
         "full_name": ci.get("name", ""),
