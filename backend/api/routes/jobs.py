@@ -2,7 +2,7 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from api.schemas import JobSchema, PaginatedJobResponse, MatchDetailSchema, ApiResponse, JobStatsSchema
@@ -190,11 +190,17 @@ async def search_jobs(
             message=f"Found {result.jobs_found} jobs across {len(result.sources_used)} sources ({result.jobs_new} new)",
         )
 
-        # Fetch jobs from DB.
+        # Fetch jobs from DB — filter by source if user selected specific sources.
         one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        db_filters = [Job.discovered_at >= one_hour_ago]
+        if backend_sources:
+            db_source_filters = [
+                Job.source.like(f"{bs}%") for bs in backend_sources
+            ]
+            db_filters.append(or_(*db_source_filters))
         stmt = (
             select(Job)
-            .where(Job.discovered_at >= one_hour_ago)
+            .where(*db_filters)
             .order_by(Job.discovered_at.desc())
             .limit(max_results * 5)
         )
