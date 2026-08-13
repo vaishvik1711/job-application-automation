@@ -20,7 +20,6 @@ const searchSchema = z.object({
   remote_only: z.boolean().optional(),
   posted_within_days: z.number().optional(),
   salary_min: z.number().optional(),
-  salary_max: z.number().optional(),
 })
 
 const JOB_TYPE_OPTIONS: { value: JobType; label: string }[] = [
@@ -112,7 +111,6 @@ export function SearchFilters({ onSearch, isSearching }: SearchFiltersProps) {
       remote_only: data.remote_only || false,
       posted_within_days: data.posted_within_days || 7,
       salary_min: data.salary_min,
-      salary_max: data.salary_max,
     }
 
     onSearch(searchData)
@@ -307,43 +305,25 @@ export function SearchFilters({ onSearch, isSearching }: SearchFiltersProps) {
                 onClick={() => toggleSection('salary')}
                 className="w-full flex items-center justify-between p-3 text-left"
               >
-                <span className="font-medium text-slate-700 dark:text-slate-300">Salary Range</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300">Minimum Salary</span>
                 {collapsedSections.salary ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
               </button>
               {!collapsedSections.salary && (
                 <div className="px-3 pb-3">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label htmlFor="salary_min" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                        Min Salary
+                        Min Salary (optional)
                       </label>
                       <Input
                         id="salary_min"
                         type="number"
                         {...form.register('salary_min', { valueAsNumber: true })}
-                        placeholder="50000"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="salary_max" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                        Max Salary
-                      </label>
-                      <Input
-                        id="salary_max"
-                        type="number"
-                        {...form.register('salary_max', { valueAsNumber: true })}
-                        placeholder="200000"
+                        placeholder="e.g. 50000"
                       />
                     </div>
                     <div className="flex items-end">
-                      <Select
-                        options={[
-                          { value: 'yearly', label: 'Yearly' },
-                          { value: 'monthly', label: 'Monthly' },
-                          { value: 'hourly', label: 'Hourly' },
-                        ]}
-                        defaultValue="yearly"
-                      />
+                      <span className="text-sm text-slate-400 dark:text-slate-500 pb-2">per year</span>
                     </div>
                   </div>
                 </div>

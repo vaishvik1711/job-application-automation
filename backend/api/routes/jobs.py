@@ -118,42 +118,52 @@ async def search_jobs(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Search for jobs (uses DiscoveryAgent with real-time Socket.IO updates)."""
-    from agents.discovery_agent import DiscoveryAgent
+    from agents.discovery_agent import create_discovery_agent
     from api.websocket import emit_pipeline_update, emit_error
+    from datetime import datetime, timezone
 
     filters = request.get("filters", {})
-    sources = filters.get("sources", ["indeed", "linkedin", "glassdoor", "jobbank", "company_careers"])
-    total_sources = len(sources)
+    max_results = request.get("max_results_per_source", 50)
 
     try:
         await emit_pipeline_update(
             stage="search",
             current=0,
-            total=total_sources,
-            message=f"Searching {total_sources} job sources...",
+            total=1,
+            message="Initializing job search agent...",
         )
 
-        agent = await DiscoveryAgent.create()
+        agent = await create_discovery_agent()
+        search_before = datetime.now(timezone.utc)
         result = await agent.discover_jobs(
             filters=filters,
-            limit_per_source=request.get("max_results_per_source", 50),
-            use_cache=request.get("use_cache", True),
+            limit_per_source=max_results,
         )
         await agent.close()
 
+        # Fetch the newly discovered jobs from the DB (ordered by most recent)
+        stmt = (
+            select(Job)
+            .where(Job.discovered_at >= search_before)
+            .order_by(Job.discovered_at.desc())
+            .limit(max_results * 5)
+        )
+        db_result = await session.execute(stmt)
+        jobs = db_result.scalars().all()
+
         await emit_pipeline_update(
             stage="search",
-            current=total_sources,
-            total=total_sources,
-            message=f"Found {result.total_found} jobs across {len(result.sources_used)} sources",
+            current=1,
+            total=1,
+            message=f"Found {result.jobs_found} jobs across {len(result.sources_used)} sources ({result.jobs_new} new)",
         )
 
         return ApiResponse(data={
-            "jobs": [_job_to_schema(j) for j in result.jobs],
-            "total_found": result.total_found,
+            "jobs": [_job_to_schema(j) for j in jobs],
+            "total_found": result.jobs_found,
             "sources_searched": result.sources_used,
-            "search_duration_ms": result.search_duration_ms,
-            "duplicates_removed": result.duplicates_removed,
+            "search_duration_ms": 0,
+            "duplicates_removed": result.jobs_duplicate,
         })
     except Exception as e:
         await emit_error(f"Job search failed: {str(e)}")

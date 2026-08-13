@@ -99,7 +99,6 @@ export function JobSearch() {
       remote_only: storeFilters.remote_only || false,
       posted_within_days: storeFilters.posted_within_days || 7,
       salary_min: storeFilters.salary_min,
-      salary_max: storeFilters.salary_max,
     }
     handleSearch(searchData)
   }, [handleSearch])
