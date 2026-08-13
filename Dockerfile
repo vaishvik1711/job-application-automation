@@ -12,16 +12,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Copy Python requirements and install dependencies first (better layer caching)
-# Also install API-specific requirements to ensure fastapi/uvicorn are present
-COPY requirements.txt .
-COPY backend/api/requirements.txt ./api-requirements.txt
-RUN echo "=== ROOT requirements.txt ===" && \
-    cat requirements.txt && \
-    echo "=== API requirements.txt ===" && \
-    cat api-requirements.txt && \
-    echo "=== Installing... ===" && \
-    pip install --no-cache-dir -r api-requirements.txt -r requirements.txt && \
+# Install Python dependencies directly (avoids requirements.txt copy issues)
+RUN pip install --no-cache-dir \
+    "fastapi>=0.110.0" \
+    "uvicorn[standard]>=0.29.0" \
+    "pydantic>=2.12.0" \
+    "pydantic-settings>=2.6.0" \
+    "python-dotenv>=1.0.0" \
+    "pyyaml>=6.0" \
+    "sqlalchemy>=2.0.25" \
+    "aiosqlite>=0.19.0" \
+    "asyncpg>=0.29.0" \
+    "python-multipart>=0.0.9" \
+    "aiofiles>=23.2.1" \
+    "httpx>=0.27.0" \
+    "aiohttp>=3.9.0" \
+    "beautifulsoup4>=4.12.0" \
+    "lxml>=4.9.0" \
+    "pandas>=2.0.0" \
+    "openpyxl>=3.1.0" \
+    "python-docx>=1.1.0" \
+    "playwright>=1.40.0" \
+    "tenacity>=8.3.0" \
+    "python-dateutil>=2.8.0" \
+    "rich>=13.7.0" \
+    "typer>=0.9.0" \
+    "boto3>=1.34.0" \
+    "supabase>=2.3.0" && \
     python -c "import uvicorn; print('uvicorn OK:', uvicorn.__version__)" && \
     python -c "import fastapi; print('fastapi OK:', fastapi.__version__)"
 
