@@ -197,13 +197,14 @@ class ResumeParser:
                 parsed.education.extend(self._parse_education(content))
             elif any(kw in name_lower for kw in ["skill", "competenc", "expertise"]):
                 skills = self._parse_skills(content)
-                parsed.skills.extend(skills)
-                # Categorize technical vs business
+                # Categorize technical vs business — no duplicates
                 for skill in skills:
                     if self._is_technical_skill(skill):
-                        parsed.technical_skills.append(skill)
+                        if skill not in parsed.technical_skills:
+                            parsed.technical_skills.append(skill)
                     else:
-                        parsed.skills.append(skill)
+                        if skill not in parsed.skills:
+                            parsed.skills.append(skill)
             elif "certif" in name_lower or "license" in name_lower:
                 parsed.certifications.extend(self._parse_certifications(content))
             elif "project" in name_lower:
