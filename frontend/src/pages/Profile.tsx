@@ -10,10 +10,10 @@ import { ExperienceForm } from '@/components/profile/ExperienceForm'
 import { EducationForm } from '@/components/profile/EducationForm'
 import { CertificationsForm } from '@/components/profile/CertificationsForm'
 import { AdditionalExperienceForm } from '@/components/profile/AdditionalExperienceForm'
-import { Upload, User, Sparkles, Briefcase, GraduationCap, Award, Star, CheckCircle } from 'lucide-react'
+import { Upload, User, Sparkles, Briefcase, GraduationCap, Award, Star, CheckCircle, Trash2, AlertTriangle } from 'lucide-react'
 import { useProfileStore } from '@/store/index'
 import { useJobSearchStore } from '@/store/index'
-import { updateProfile, generateJobFilters } from '@/services/api'
+import { updateProfile, generateJobFilters, deleteProfile } from '@/services/api'
 import { CandidateProfile } from '@/types'
 import { toast } from 'sonner'
 
@@ -113,6 +113,21 @@ export function Profile() {
     [profile, setProfile, setFilters, navigate]
   )
 
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+
+  const handleClearProfile = useCallback(async () => {
+    try {
+      await deleteProfile()
+      setProfile(null)
+      setShowClearConfirm(false)
+      setActiveTab('resume')
+      toast.success('Profile cleared')
+    } catch (err: any) {
+      console.error('Failed to clear profile:', err)
+      toast.error(err.response?.data?.detail || 'Failed to clear profile')
+    }
+  }, [setProfile])
+
   const handleResumeComplete = useCallback(
     async (parsedProfile: any) => {
       setProfile(parsedProfile)
@@ -165,6 +180,34 @@ export function Profile() {
               <CheckCircle className="w-3 h-3 mr-1" />
               Profile Complete
             </Badge>
+            {!showClearConfirm ? (
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(true)}
+                className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 flex items-center gap-1 px-2 py-1 rounded border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              >
+                <Trash2 className="w-3 h-3" /> Clear
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded px-3 py-1.5">
+                <AlertTriangle className="w-4 h-4 text-red-500" />
+                <span className="text-xs text-red-700 dark:text-red-300 font-medium">Clear all data?</span>
+                <button
+                  type="button"
+                  onClick={handleClearProfile}
+                  className="text-xs font-semibold text-white bg-red-600 hover:bg-red-700 px-2 py-0.5 rounded transition-colors"
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirm(false)}
+                  className="text-xs font-medium text-red-700 dark:text-red-300 hover:text-red-900 dark:hover:text-red-100 px-2 py-0.5 rounded border border-red-300 dark:border-red-700 transition-colors"
+                >
+                  No
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

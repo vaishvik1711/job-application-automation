@@ -107,6 +107,9 @@ export const profileApi = {
 export const updateProfile = (data: Partial<CandidateProfile>) =>
   profileApi.update(data).then((res) => res.data.data)
 
+export const deleteProfile = () =>
+  api.delete<ApiResponse<{deleted: boolean}>>('/profile').then((res) => res.data.data)
+
 export const uploadResume = (file: File, onProgress?: (progress: number) => void) =>
   api.post<ApiResponse<UploadResponse>>('/profile/upload', file instanceof FormData ? file : (() => {
     const formData = new FormData()

@@ -269,6 +269,24 @@ async def get_profile(session: AsyncSession = Depends(get_db_session)):
     return ApiResponse(data=profile_dict)
 
 
+@router.delete("/profile", response_model=ApiResponse)
+async def delete_profile(session: AsyncSession = Depends(get_db_session)):
+    """Delete the candidate profile and all related data."""
+    result = await session.execute(select(CandidateProfile))
+    profile = result.scalars().first()
+
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found",
+        )
+
+    await session.delete(profile)
+    await session.flush()
+
+    return ApiResponse(data={"deleted": True})
+
+
 @router.patch("/profile", response_model=ApiResponse)
 async def update_profile(
     data: dict,
