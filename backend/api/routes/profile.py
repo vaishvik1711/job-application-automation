@@ -238,7 +238,14 @@ async def get_profile(session: AsyncSession = Depends(get_db_session)):
             detail="Profile not found",
         )
 
-    # Serialize the profile from DB model to dict
+    # Serialize the profile from DB model to dict.
+    # technical_skills is stored as List[str]; convert back to Skill[] for the frontend.
+    stored_skills = profile.technical_skills or []
+    skills_out = [
+        {"name": s, "category": "Programming Languages", "proficiency": 3}
+        if isinstance(s, str) else s
+        for s in stored_skills
+    ]
     profile_dict = {
         "id": str(profile.id),
         "personal_info": {
@@ -250,7 +257,7 @@ async def get_profile(session: AsyncSession = Depends(get_db_session)):
             "github": profile.github_url,
             "portfolio": profile.portfolio_url,
         },
-        "skills": profile.technical_skills or [],
+        "skills": skills_out,
         "experience": profile.employment_history or [],
         "education": profile.education or [],
         "certifications": profile.certifications or [],
@@ -321,7 +328,11 @@ async def update_profile(
         profile.portfolio_url = pi.get("portfolio", profile.portfolio_url)
 
     if "skills" in data:
-        profile.technical_skills = data["skills"]
+        # technical_skills is stored as List[str] — extract names from Skill[] objects
+        profile.technical_skills = [
+            s.get("name", s) if isinstance(s, dict) else s
+            for s in (data["skills"] or [])
+        ]
 
     if "experience" in data:
         profile.employment_history = data["experience"]
@@ -334,7 +345,33 @@ async def update_profile(
 
     await session.flush()
 
-    return ApiResponse(data={"id": str(profile.id), "updated": True})
+    # Return full profile data so the frontend can safely setProfile(response)
+    # without losing skills/experience/education/certifications.
+    # Note: technical_skills is stored as List[str]; convert back to Skill[] for the frontend.
+    stored_skills = profile.technical_skills or []
+    skills_out = [
+        {"name": s, "category": "Programming Languages", "proficiency": 3}
+        if isinstance(s, str) else s
+        for s in stored_skills
+    ]
+    return ApiResponse(data={
+        "id": str(profile.id),
+        "personal_info": {
+            "full_name": profile.name,
+            "email": profile.email,
+            "phone": profile.phone,
+            "location": profile.city,
+            "linkedin": profile.linkedin_url,
+            "github": profile.github_url,
+            "portfolio": profile.portfolio_url,
+        },
+        "skills": skills_out,
+        "experience": profile.employment_history or [],
+        "education": profile.education or [],
+        "certifications": profile.certifications or [],
+        "created_at": profile.created_at.isoformat() if profile.created_at else None,
+        "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+    })
 
 
 @router.post("/profile/upload", response_model=ApiResponse)
