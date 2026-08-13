@@ -481,19 +481,21 @@ async def generate_filters(
     if not locations and profile.city:
         locations = [profile.city, "Remote Canada"]
 
-    # Map employment preferences to job_type enum values
+    # Map employment preferences to JobType enum values (underscore format)
     pref_map = {
-        "full_time": "full-time",
-        "part_time": "part-time",
+        "full_time": "full_time",
+        "part_time": "part_time",
         "contract": "contract",
         "internship": "internship",
         "temporary": "temporary",
-        "full-time": "full-time",
-        "part-time": "part-time",
+        "full-time": "full_time",
+        "part-time": "part_time",
+        "full time": "full_time",
+        "part time": "part_time",
     }
     job_types_raw = profile.employment_preferences or ["Full-time"]
     job_types = list(set(
-        pref_map.get(jt.lower(), jt.lower())
+        pref_map.get(jt.lower().replace("-", "_"), "full_time")
         for jt in job_types_raw
     ))
 

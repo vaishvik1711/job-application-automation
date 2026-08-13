@@ -84,9 +84,9 @@ export function Profile() {
               setFilters({
                 keywords: filters.keywords,
                 locations: filters.locations,
-                job_types: filters.job_types,
-                experience_levels: filters.experience_levels,
-                sources: filters.sources,
+                job_types: filters.job_types as any,
+                experience_levels: filters.experience_levels as any,
+                sources: filters.sources as any,
                 remote_only: filters.remote_only,
                 posted_within_days: filters.posted_within_days,
               })
