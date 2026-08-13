@@ -1,9 +1,12 @@
 name = "job-application-automation"
 compatibility_date = "2026-08-13"
 
-# Cloudflare Pages — tells the build where to find the compiled output
-pages_build_output_dir = "frontend/dist"
+# Cloudflare Pages configuration
+# The build runs from `frontend/` (set as Root Directory in the dashboard)
+# so the output directory is just `dist` relative to `frontend/`
+pages_build_output_dir = "dist"
 
+# Security headers
 [vars]
 
 [observability]
