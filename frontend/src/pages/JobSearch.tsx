@@ -95,7 +95,7 @@ export function JobSearch() {
       locations: storeFilters.locations || [],
       job_types: storeFilters.job_types || [],
       experience_levels: storeFilters.experience_levels || [],
-      sources: storeFilters.sources || ['jobbank', 'indeed', 'linkedin'],
+      sources: storeFilters.sources || ['jobbank'],
       remote_only: storeFilters.remote_only || false,
       posted_within_days: storeFilters.posted_within_days || 7,
       salary_min: storeFilters.salary_min,

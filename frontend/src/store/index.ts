@@ -61,7 +61,7 @@ const defaultFilters: JobSearchFilters = {
   locations: [],
   job_types: [],
   experience_levels: [],
-  sources: ['indeed', 'linkedin', 'glassdoor', 'jobbank', 'company_careers'],
+  sources: ['jobbank'],
   remote_only: false,
   posted_within_days: 7,
 }
