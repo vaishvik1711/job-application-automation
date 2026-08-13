@@ -5,14 +5,14 @@ import os
 from typing import AsyncGenerator, Optional
 
 from fastapi import Depends, HTTPException, status, Header
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from supabase import create_client, Client as SupabaseClient
 from pydantic import BaseModel
 
 # Database setup
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./jobs.db")
 engine = create_async_engine(DATABASE_URL, echo=False)
-async_session = create_async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # Supabase client
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
