@@ -209,17 +209,20 @@ async def search_jobs(
             }
             for bs in backend_sources:
                 bs_patterns = source_aliases.get(bs, [bs])
-                stmt = (
-                    select(Job)
-                    .where(
-                        Job.discovered_at >= one_hour_ago,
-                        or_(*[Job.source.like(f"{p}%") for p in bs_patterns])
+                # Query each alias pattern with its own limit so older source
+                # values (e.g. "indeed") aren't crowded out by newer ones
+                for bp in bs_patterns:
+                    stmt = (
+                        select(Job)
+                        .where(
+                            Job.discovered_at >= one_hour_ago,
+                            Job.source.like(f"{bp}%"),
+                        )
+                        .order_by(Job.discovered_at.desc())
+                        .limit(per_source_limit)
                     )
-                    .order_by(Job.discovered_at.desc())
-                    .limit(per_source_limit)
-                )
-                db_result = await session.execute(stmt)
-                all_jobs.extend(db_result.scalars().all())
+                    db_result = await session.execute(stmt)
+                    all_jobs.extend(db_result.scalars().all())
             # Deduplicate by id while preserving order
             seen = set()
             jobs = []
