@@ -26,7 +26,7 @@ class WebSocketService {
     }
 
     // Build the WebSocket URL from VITE_API_URL (the backend) so we
-    // connect to the Railway API server, not the Vercel frontend origin.
+    // connect to the Railway API server, not the Cloudflare Pages frontend origin.
     const apiUrl = (import.meta as any).env?.VITE_API_URL
     let wsUrl: string
 
