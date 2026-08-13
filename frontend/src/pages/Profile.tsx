@@ -49,7 +49,13 @@ export function Profile() {
       if (!profile) return
 
       try {
-        const updated = await updateProfile(updates)
+        // Send the FULL profile merged with the current update so the backend
+        // persists everything on the first save — not just the one tab being
+        // saved.  Without this, saving a single tab overwrites the in-memory
+        // profile with a backend response that has empty arrays for every
+        // other section, losing the parsed resume data.
+        const fullPayload = { ...profile, ...updates }
+        const updated = await updateProfile(fullPayload)
         setProfile(updated)
 
         // Check if ALL tabs are now complete — if so, auto-generate job filters
