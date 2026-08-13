@@ -63,6 +63,8 @@ export interface UploadResponse {
   file_id: string
   filename: string
   size: number
+  profile?: CandidateProfile
+  url?: string
 }
 
 export interface ParseResponse {

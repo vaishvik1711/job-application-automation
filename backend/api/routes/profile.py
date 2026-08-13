@@ -1,14 +1,23 @@
 """Profile API routes."""
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from api.schemas import CandidateProfileSchema, ApiResponse
-from api.dependencies import get_db_session, get_supabase_client
-from database.models import CandidateProfile
-import json
+import logging
 import os
 import tempfile
 from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.schemas import ApiResponse
+from api.dependencies import get_db_session, get_supabase_client
+from database.models import CandidateProfile
+
+logger = logging.getLogger(__name__)
+
+
+class ParseRequest(BaseModel):
+    file_id: str
 
 router = APIRouter()
 
@@ -108,27 +117,42 @@ async def update_profile(
 async def upload_resume(
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_db_session),
-    supabase = Depends(get_supabase_client),
 ):
-    """Upload a resume file to Supabase Storage."""
+    """Upload a resume file (stores to Supabase Storage if configured, parses locally either way)."""
     file_content = await file.read()
-    file_name = f"resumes/{uuid4()}_{file.filename}"
+    file_id = f"resumes/{uuid4()}_{file.filename}"
+    file_url = ""
 
-    # Upload to Supabase Storage
-    res = supabase.storage.from_("resumes").upload(file_name, file_content)
-    if not res.get("path"):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload resume to storage",
-        )
-
-    file_url = supabase.storage.from_("resumes").get_public_url(file_name)
+    # Upload to Supabase Storage (optional — gracefully fall back for local dev)
+    try:
+        supabase = get_supabase_client()
+        res = supabase.storage.from_("resumes").upload(file_id, file_content)
+        if not (hasattr(res, "get") and not res.get("path")):
+            file_url = supabase.storage.from_("resumes").get_public_url(file_id)
+    except Exception as e:
+        logger.warning("Supabase storage upload failed (resume served in-memory only): %s", e)
 
     # Parse the resume using existing backend logic
-    parsed = _parse_resume_from_bytes(file_content, file.filename)
+    try:
+        parsed = _parse_resume_from_bytes(file_content, file.filename)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except ImportError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to parse resume: {str(e)}",
+        )
 
     return ApiResponse(data={
-        "file_id": file_name,
+        "file_id": file_id,
         "filename": file.filename,
         "size": len(file_content),
         "url": file_url,
@@ -138,23 +162,20 @@ async def upload_resume(
 
 @router.post("/profile/parse", response_model=ApiResponse)
 async def parse_resume_endpoint(
-    file_id: str = Form(...),
-    file_content: bytes = File(None),
-    session: AsyncSession = Depends(get_db_session),
+    request: ParseRequest,
     supabase = Depends(get_supabase_client),
 ):
-    """Parse a previously uploaded resume."""
-    # Try to get file from Supabase Storage
-    if not file_content:
+    """Parse a previously uploaded resume by file_id (JSON body)."""
+    file_id = request.file_id
+    try:
         res = supabase.storage.from_("resumes").download(file_id)
-        if not res:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="File not found",
-            )
-        file_content = res
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found in storage",
+        )
 
-    parsed = _parse_resume_from_bytes(file_content, file_id)
+    parsed = _parse_resume_from_bytes(res, file_id)
 
     return ApiResponse(data={
         "profile": parsed,

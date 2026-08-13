@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Progress } from '@/components/ui/Progress'
 import { cn } from '@/utils/helpers'
-import { uploadResume, parseResume, UploadResponse, ParseResponse } from '@/services/api'
+import { uploadResume, UploadResponse } from '@/services/api'
 import { useProfileStore } from '@/store/index'
+import type { CandidateProfile } from '@/types'
 import { toast } from 'sonner'
 
 interface ResumeUploadProps {
@@ -47,27 +48,34 @@ export function ResumeUpload({ onComplete }: ResumeUploadProps) {
     setResumeUploading(true)
 
     try {
-      // Upload resume
+      // Upload resume — the backend parses the resume and returns profile data in one step
       const uploadResponse: UploadResponse = await uploadResume(file, (progress) => {
         setUploadProgress(progress)
       })
 
-      setStage('parsing')
-      setParseProgress(0)
-
-      // Parse resume
-      const parseResponse: ParseResponse = await parseResume(uploadResponse.file_id, (progress) => {
-        setParseProgress(progress)
-      })
-
-      if (parseResponse.profile) {
-        setProfile(parseResponse.profile)
+      // Use the profile data returned directly by the upload endpoint
+      if (uploadResponse.profile) {
+        setProfile(uploadResponse.profile as CandidateProfile)
         setStage('complete')
-        onComplete?.(parseResponse.profile)
+        onComplete?.(uploadResponse.profile)
         toast.success('Profile created from resume!')
       } else {
-        setError('Failed to parse resume. Please try again or create profile manually.')
-        setStage('error')
+        // Fallback: profile data wasn't in upload response; use parse endpoint
+        const { parseResume } = await import('@/services/api')
+        setStage('parsing')
+        setParseProgress(0)
+        const parseResponse = await parseResume(uploadResponse.file_id, (progress) => {
+          setParseProgress(progress)
+        })
+        if (parseResponse.profile) {
+          setProfile(parseResponse.profile as CandidateProfile)
+          setStage('complete')
+          onComplete?.(parseResponse.profile)
+          toast.success('Profile created from resume!')
+        } else {
+          setError('Failed to parse resume. Please try again or create profile manually.')
+          setStage('error')
+        }
       }
     } catch (err: any) {
       console.error('Resume upload/parse error:', err)
