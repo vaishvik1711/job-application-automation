@@ -299,17 +299,23 @@ async def update_profile(
         session.add(profile)
         await session.flush()
 
+        # Build personal_info from DB columns + extra frontend-only fields from request
+        pi_resp = {
+            "full_name": profile.name,
+            "email": profile.email,
+            "phone": profile.phone,
+            "location": profile.city,
+            "linkedin": profile.linkedin_url,
+            "github": profile.github_url,
+            "portfolio": profile.portfolio_url,
+        }
+        for extra in ("website", "twitter", "summary"):
+            if extra in pi:
+                pi_resp[extra] = pi[extra]
+
         return ApiResponse(data={
             "id": str(profile.id),
-            "personal_info": {
-                "full_name": profile.name,
-                "email": profile.email,
-                "phone": profile.phone,
-                "location": profile.city,
-                "linkedin": profile.linkedin_url,
-                "github": profile.github_url,
-                "portfolio": profile.portfolio_url,
-            },
+            "personal_info": pi_resp,
             "skills": skills_data,
             "experience": data.get("experience", []) or [],
             "education": data.get("education", []) or [],
@@ -360,17 +366,24 @@ async def update_profile(
         if isinstance(s, str) else s
         for s in stored_skills
     ]
+    # Build personal_info from DB columns + extra frontend-only fields from request
+    req_pi = data.get("personal_info", {})
+    pi_resp = {
+        "full_name": profile.name,
+        "email": profile.email,
+        "phone": profile.phone,
+        "location": profile.city,
+        "linkedin": profile.linkedin_url,
+        "github": profile.github_url,
+        "portfolio": profile.portfolio_url,
+    }
+    for extra in ("website", "twitter", "summary"):
+        if extra in req_pi:
+            pi_resp[extra] = req_pi[extra]
+
     return ApiResponse(data={
         "id": str(profile.id),
-        "personal_info": {
-            "full_name": profile.name,
-            "email": profile.email,
-            "phone": profile.phone,
-            "location": profile.city,
-            "linkedin": profile.linkedin_url,
-            "github": profile.github_url,
-            "portfolio": profile.portfolio_url,
-        },
+        "personal_info": pi_resp,
         "skills": skills_out,
         "experience": profile.employment_history or [],
         "education": profile.education or [],

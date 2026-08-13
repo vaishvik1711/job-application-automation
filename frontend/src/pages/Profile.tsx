@@ -106,7 +106,14 @@ export function Profile() {
         }
       } catch (error: any) {
         console.error('Failed to update profile:', error)
-        toast.error(error.response?.data?.detail || 'Failed to update profile')
+        console.error('Server response:', JSON.stringify(error.response?.data, null, 2))
+        console.error('Status:', error.response?.status)
+        const serverMsg = error.response?.data?.detail
+        if (serverMsg) {
+          toast.error(`Server: ${serverMsg}`)
+        } else {
+          toast.error(`Failed to update profile (${error.response?.status || 'network error'})`)
+        }
       }
     },
     [profile, setProfile, setFilters, navigate]
