@@ -156,14 +156,16 @@ class ResumeParser:
             if text_lower == header or text_lower.startswith(header + ":") or text_lower.endswith(":" + header):
                 return True
 
-        # Check formatting: all caps, bold, larger font, or style name
+        # All-caps short text: only treat as a section header if it contains a known keyword.
+        # Avoids mistaking an all-caps name (e.g. "VAISHVIK PATEL") for a section.
         if text.isupper() and len(text) < 50:
-            return True
+            if any(h in text_lower for h in self.SECTION_HEADERS):
+                return True
 
         if para.style and "heading" in para.style.name.lower():
             return True
 
-        # Check if all runs are bold
+        # Check if all runs are bold — skip single-line names that aren't known headers
         if para.runs and all(run.bold for run in para.runs if run.text.strip()):
             return True
 
@@ -462,7 +464,7 @@ class ResumeParser:
             is_header = any(
                 line.lower().startswith(h) or line.lower() == h or line.lower().endswith(":" + h)
                 for h in self.SECTION_HEADERS
-            ) or (line.isupper() and len(line) < 50)
+            ) or (line.isupper() and len(line) < 50 and any(h in line.lower() for h in self.SECTION_HEADERS))
 
             if is_header:
                 if current_section:

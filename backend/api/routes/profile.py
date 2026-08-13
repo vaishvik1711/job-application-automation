@@ -38,8 +38,41 @@ def _parse_resume_from_bytes(file_content: bytes, filename: str):
 def _parsed_resume_to_profile_dict(parsed) -> dict:
     """Convert a ParsedResume dataclass into the CandidateProfile dict shape the
     frontend forms expect (personal_info, skills, experience, education, certifications)."""
+    import re as _re
+
     ci = getattr(parsed, "contact_info", {}) or {}
     summary = getattr(parsed, "summary", "") or ""
+    raw_text = getattr(parsed, "raw_text", "") or ""
+
+    # Fallback: if the structured contact_info is empty, scan the raw text for
+    # the first ~20 lines (covers the name/email/phone block at the top).
+    if not ci.get("email") and raw_text:
+        lines = raw_text.split("\n")[:20]
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            email_m = _re.search(r'[\w\.-]+@[\w\.-]+\.\w+', line)
+            if email_m and not ci.get("email"):
+                ci["email"] = email_m.group()
+            phone_m = _re.search(r'[\+]?[\d\s\-\(\)]{10,}', line)
+            if phone_m and not ci.get("phone"):
+                ci["phone"] = phone_m.group().strip()
+            if "linkedin" in line.lower() and not ci.get("linkedin"):
+                lnk = _re.search(r'linkedin\.com/\S+', line, _re.I)
+                ci["linkedin"] = lnk.group() if lnk else line
+            if "github" in line.lower() and not ci.get("github"):
+                gh = _re.search(r'github\.com/\S+', line, _re.I)
+                ci["github"] = gh.group() if gh else line
+        # Pick the first text-only line ≤4 words as the name
+        for line in lines:
+            line = line.strip()
+            if line and not any(kw in line.lower() for kw in ["@", "http", "linkedin", "github",
+                                                                "phone", "email", "mobile"]):
+                words = line.split()
+                if len(words) <= 4:
+                    ci["name"] = line
+                    break
 
     # --- personal_info ---
     personal_info = {
@@ -107,6 +140,72 @@ def _parsed_resume_to_profile_dict(parsed) -> dict:
             "credential_id": cert.get("credential_id", ""),
             "credential_url": cert.get("url", ""),
         })
+
+    # Fallback: if the parser didn't split sections correctly, scan sections
+    # to find experience/education content and re-parse with lightweight heuristics.
+    sections = getattr(parsed, "sections", []) or []
+    if not experience or not education:
+        for sec in sections:
+            name = (getattr(sec, "name", "") or "").lower()
+            content = (getattr(sec, "content", "") or "").strip()
+            if not content:
+                continue
+            if not experience and any(kw in name for kw in ("experience", "employment", "work")):
+                for block in _re.split(r"\n\s*\n", content):
+                    lines = [l.strip() for l in block.split("\n") if l.strip()]
+                    if len(lines) < 2:
+                        continue
+                    entry = {"company": "", "title": "", "location": "", "description": "",
+                             "start_date": "", "end_date": "", "current": False, "technologies": []}
+                    # Try Title | Company or first-line-heuristic
+                    if "|" in lines[0]:
+                        parts = [p.strip() for p in lines[0].split("|")]
+                        entry["title"] = parts[0]
+                        entry["company"] = parts[1] if len(parts) > 1 else ""
+                    else:
+                        # Fallback: first line is title, second is company
+                        entry["title"] = lines[0]
+                        if len(lines) > 1:
+                            entry["company"] = lines[1]
+                    # Date lines
+                    for line in lines:
+                        dm = _re.search(r"(\d{4})\s*[-–—]\s*(\d{4}|present|current)", line, _re.I)
+                        if dm:
+                            entry["start_date"] = dm.group(1)
+                            entry["end_date"] = dm.group(2)
+                            entry["current"] = dm.group(2).lower() in ("present", "current")
+                    # Bullets as description
+                    bullets = [l for l in lines if l.startswith(("•", "-", "·", "▪", "–", "*"))]
+                    if bullets:
+                        entry["description"] = "\n".join(b.strip("•-·▪–* ") for b in bullets)
+                    else:
+                        entry["description"] = "\n".join(lines)
+                    # Deduplicate against already-parsed entries
+                    already = {(e.get("title", ""), e.get("company", "")) for e in experience}
+                    if (entry["title"], entry["company"]) not in already:
+                        experience.append(entry)
+            if not education and any(kw in name for kw in ("education", "academic")):
+                for block in _re.split(r"\n\s*\n", content):
+                    lines = [l.strip() for l in block.split("\n") if l.strip()]
+                    if not lines:
+                        continue
+                    entry = {"institution": "", "degree": "", "field_of_study": "",
+                             "location": "", "start_date": "", "end_date": "", "gpa": ""}
+                    if "|" in lines[0]:
+                        parts = [p.strip() for p in lines[0].split("|")]
+                        entry["degree"] = parts[0]
+                        entry["institution"] = parts[1] if len(parts) > 1 else ""
+                    else:
+                        entry["degree"] = lines[0]
+                    for line in lines[1:]:
+                        ym = _re.search(r"\d{4}", line)
+                        if ym and not entry["end_date"]:
+                            entry["end_date"] = ym.group()
+                        elif not entry["institution"]:
+                            entry["institution"] = line
+                    already = {(e.get("institution", ""), e.get("degree", "")) for e in education}
+                    if (entry["institution"], entry["degree"]) not in already:
+                        education.append(entry)
 
     return {
         "personal_info": personal_info,
