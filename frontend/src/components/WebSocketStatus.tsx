@@ -1,4 +1,4 @@
-import { useWebSocket } from '@/hooks/useWebSocket'
+import { useWebSocketContext } from '@/services/WebSocketProvider'
 import { Badge } from '@/components/ui/Badge'
 import { Wifi, WifiOff, RefreshCw, AlertCircle } from 'lucide-react'
 
@@ -8,7 +8,7 @@ interface WebSocketStatusProps {
 }
 
 export function WebSocketStatus({ compact = false, showMessages = true }: WebSocketStatusProps) {
-  const { connectionState, isConnected, lastMessage, messages, connect } = useWebSocket()
+  const { connectionState, isConnected, lastMessage, messages, connect } = useWebSocketContext()
 
   if (compact) {
     return (
@@ -45,7 +45,7 @@ export function WebSocketStatus({ compact = false, showMessages = true }: WebSoc
             : 'Disconnected from server'}
         </Badge>
 
-        {!isConnected && connectionState === 'disconnected' && (
+        {!isConnected && (connectionState === 'disconnected' || connectionState === 'error') && (
           <button
             onClick={connect}
             className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 hover:dark:text-primary-300"

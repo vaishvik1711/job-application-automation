@@ -43,7 +43,7 @@ async def get_profile(session: AsyncSession = Depends(get_db_session)):
         "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
     }
 
-    return ApiResponse[CandidateProfileSchema](data=profile_dict)
+    return ApiResponse(data=profile_dict)
 
 
 @router.patch("/profile", response_model=ApiResponse)
@@ -86,7 +86,7 @@ async def update_profile(
 
     await session.flush()
 
-    return ApiResponse[CandidateProfileSchema](data={"id": str(profile.id), "updated": True})
+    return ApiResponse(data={"id": str(profile.id), "updated": True})
 
 
 @router.post("/profile/upload", response_model=ApiResponse)

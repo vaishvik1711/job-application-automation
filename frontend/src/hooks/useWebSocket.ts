@@ -21,19 +21,31 @@ export function useWebSocket(
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected')
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null)
   const [messages, setMessages] = useState<WSMessage[]>([])
-  // Track if we've already connected
-  const connectedRef = useRef(false)
+  const connectTimeoutRef = useRef<number | null>(null)
+
+  const clearConnectTimeout = () => {
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current)
+      connectTimeoutRef.current = null
+    }
+  }
 
   useEffect(() => {
     if (!autoConnect) return
 
     websocketService.connect()
-    connectedRef.current = true
     setConnectionState('connecting')
+
+    // Fallback: if still connecting after 15 s, drop to "disconnected"
+    // so the Reconnect button is available.
+    connectTimeoutRef.current = window.setTimeout(() => {
+      if (websocketService.getConnectionState() !== 'connected') {
+        setConnectionState('disconnected')
+      }
+    }, 15000)
 
     // Subscribe to all message types
     const handleMessage = (payload: unknown) => {
-      // Try to parse as WSMessage
       const wsMessage = payload as Partial<WSMessage>
       const message: WSMessage = {
         type: (wsMessage.type as WSMessage['type']) || 'progress',
@@ -42,37 +54,28 @@ export function useWebSocket(
       }
 
       setLastMessage(message)
-      setMessages((prev) => [...prev.slice(-49), message]) // Keep last 50 messages
+      setMessages((prev) => [...prev.slice(-49), message])
     }
 
-    const unsubscribePipeline = websocketService.subscribe('pipeline_update', handleMessage)
-    const unsubscribeJobFound = websocketService.subscribe('job_found', handleMessage)
-    const unsubscribeMatchComplete = websocketService.subscribe('match_complete', handleMessage)
-    const unsubscribeResumeGenerated = websocketService.subscribe('resume_generated', handleMessage)
-    const unsubscribeProgress = websocketService.subscribe('progress', handleMessage)
-    const unsubscribeError = websocketService.subscribe('error', handleMessage)
-    const unsubscribeConnect = () => websocketService.subscribe('connect', () => {
-      setConnectionState('connected')
-    })
-    const unsubscribeDisconnect = () => websocketService.subscribe('disconnect', () => {
-      setConnectionState('disconnected')
-    })
+    const unsubList = [
+      websocketService.subscribe('connect', () => {
+        clearConnectTimeout()
+        setConnectionState('connected')
+      }),
+      websocketService.subscribe('disconnect', () => setConnectionState('disconnected')),
+      websocketService.subscribe('pipeline_update', handleMessage),
+      websocketService.subscribe('job_found', handleMessage),
+      websocketService.subscribe('match_complete', handleMessage),
+      websocketService.subscribe('resume_generated', handleMessage),
+      websocketService.subscribe('progress', handleMessage),
+      websocketService.subscribe('error', handleMessage),
+    ]
 
     // Cleanup
     return () => {
-      unsubscribePipeline()
-      unsubscribeJobFound()
-      unsubscribeMatchComplete()
-      unsubscribeResumeGenerated()
-      unsubscribeProgress()
-      unsubscribeError()
-      unsubscribeConnect()
-      unsubscribeDisconnect()
-
-      if (connectedRef.current) {
-        websocketService.disconnect()
-        connectedRef.current = false
-      }
+      clearConnectTimeout()
+      unsubList.forEach((unsub) => unsub())
+      websocketService.disconnect()
     }
   }, [autoConnect])
 
@@ -86,13 +89,12 @@ export function useWebSocket(
 
   const connect = useCallback(() => {
     websocketService.connect()
-    connectedRef.current = true
     setConnectionState('connecting')
   }, [])
 
   const disconnect = useCallback(() => {
+    clearConnectTimeout()
     websocketService.disconnect()
-    connectedRef.current = false
     setConnectionState('disconnected')
   }, [])
 

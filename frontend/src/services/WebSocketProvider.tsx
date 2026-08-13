@@ -1,4 +1,4 @@
-import { createContext, useContext, ReactNode, useState } from 'react'
+import { createContext, useContext, ReactNode, useState, useRef, useCallback, useEffect } from 'react'
 import { websocketService, WebSocketEventType, WebSocketListener } from '@/services/websocket'
 import type { WSMessage, PipelineProgress } from '@/types'
 import { useUIStore } from '@/store'
@@ -35,31 +35,48 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
   const [lastMessage, setLastMessage] = useState<WSMessage | null>(null)
   const [messages, setMessages] = useState<WSMessage[]>([])
   const { addNotification } = useUIStore()
+  const connectTimeoutRef = useRef<number | null>(null)
+  const unsubscribeRefs = useRef<(() => void)[]>([])
 
-  const connect = () => {
+  const clearConnectTimeout = () => {
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current)
+      connectTimeoutRef.current = null
+    }
+  }
+
+  const connect = useCallback(() => {
     websocketService.connect()
     setConnectionState('connecting')
-  }
 
-  const disconnect = () => {
+    // Fallback: if we're still "connecting" after 15 s, assume the server is
+    // unreachable and drop to "disconnected" so the Reconnect button appears.
+    clearConnectTimeout()
+    connectTimeoutRef.current = window.setTimeout(() => {
+      if (websocketService.getConnectionState() !== 'connected') {
+        setConnectionState('disconnected')
+      }
+    }, 15000)
+  }, [])
+
+  const disconnect = useCallback(() => {
+    clearConnectTimeout()
+    // Clean up existing subscriptions
+    unsubscribeRefs.current.forEach((unsub) => unsub())
+    unsubscribeRefs.current = []
     websocketService.disconnect()
     setConnectionState('disconnected')
-  }
+  }, [])
 
-  const sendMessage = (type: WebSocketEventType, payload: unknown) => {
+  const sendMessage = useCallback((type: WebSocketEventType, payload: unknown) => {
     websocketService.sendMessage(type, payload)
-  }
+  }, [])
 
-  const subscribe = (eventType: WebSocketEventType, listener: WebSocketListener) => {
+  const subscribe = useCallback((eventType: WebSocketEventType, listener: WebSocketListener) => {
     return websocketService.subscribe(eventType, listener)
-  }
+  }, [])
 
-  // Auto-connect on mount
-  if (autoConnect && connectionState === 'disconnected') {
-    connect()
-  }
-
-  // Set up global listeners for notifications
+  // Event handlers
   const handlePipelineUpdate = (payload: unknown) => {
     const progress = payload as PipelineProgress
     setLastMessage({
@@ -72,6 +89,7 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
       payload,
       timestamp: new Date().toISOString(),
     }])
+    clearConnectTimeout()
 
     if (progress.current >= progress.total) {
       setConnectionState('connected')
@@ -107,6 +125,8 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
     const error = payload as { message: string }
     addNotification({ type: 'error', message: error?.message || 'WebSocket error' })
     toast.error(error?.message || 'Connection error')
+    // Transition to disconnected so the Reconnect button is available.
+    setConnectionState('disconnected')
   }
 
   const handleProgress = (payload: unknown) => {
@@ -114,17 +134,33 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
     addNotification({ type: 'info', message: progress.message })
   }
 
-  // Subscribe to events on mount
-  if (autoConnect) {
-    websocketService.subscribe('connect', () => setConnectionState('connected'))
-    websocketService.subscribe('disconnect', () => setConnectionState('disconnected'))
-    websocketService.subscribe('pipeline_update', handlePipelineUpdate)
-    websocketService.subscribe('job_found', handleJobFound)
-    websocketService.subscribe('match_complete', handleMatchComplete)
-    websocketService.subscribe('resume_generated', handleResumeGenerated)
-    websocketService.subscribe('error', handleError)
-    websocketService.subscribe('progress', handleProgress)
-  }
+  // Auto-connect and set up global listeners on mount.
+  useEffect(() => {
+    if (!autoConnect) return
+
+    connect()
+
+    const unsubList = [
+      websocketService.subscribe('connect', () => {
+        clearConnectTimeout()
+        setConnectionState('connected')
+      }),
+      websocketService.subscribe('disconnect', () => setConnectionState('disconnected')),
+      websocketService.subscribe('pipeline_update', handlePipelineUpdate),
+      websocketService.subscribe('job_found', handleJobFound),
+      websocketService.subscribe('match_complete', handleMatchComplete),
+      websocketService.subscribe('resume_generated', handleResumeGenerated),
+      websocketService.subscribe('error', handleError),
+      websocketService.subscribe('progress', handleProgress),
+    ]
+    unsubscribeRefs.current = unsubList
+
+    return () => {
+      clearConnectTimeout()
+      unsubList.forEach((unsub) => unsub())
+      websocketService.disconnect()
+    }
+  }, [autoConnect, connect])
 
   return (
     <WebSocketContext.Provider

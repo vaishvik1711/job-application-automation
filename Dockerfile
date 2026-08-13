@@ -39,7 +39,8 @@ RUN pip install --no-cache-dir \
     "typer>=0.9.0" \
     "boto3>=1.34.0" \
     "supabase>=2.3.0" \
-    "openai>=1.0.0" && \
+    "openai>=1.0.0" \
+    "python-socketio[asyncio]>=5.3.0" && \
     python -c "import uvicorn; print('uvicorn OK:', uvicorn.__version__)" && \
     python -c "import fastapi; print('fastapi OK:', fastapi.__version__)"
 
@@ -53,7 +54,7 @@ RUN mkdir -p backend/data/master_resume backend/logs
 RUN python -m playwright install --with-deps chromium 2>/dev/null || true
 
 # Run the API server using python -m uvicorn (not the bare uvicorn binary)
-# The build context is backend/, so api.main:app loads backend/api/main.py
+# api.main:app loads backend/api/main.py — PYTHONPATH must include backend/
 # Using shell form so ${PORT:-8000} is expanded by the shell at runtime
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app/backend
 CMD python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}

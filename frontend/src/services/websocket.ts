@@ -25,15 +25,25 @@ class WebSocketService {
       return
     }
 
-    // Detect if we're in a dev environment where backend might not be running
-    const protocol = window.location.protocol === 'https:' ? 'https' : 'http'
-    const host = window.location.hostname
-    const port = window.location.port || (protocol === 'https' ? '443' : '80')
-    const wsUrl = `${protocol}://${host}${port ? `:${port}` : ''}`
+    // Build the WebSocket URL from VITE_API_URL (the backend) so we
+    // connect to the Railway API server, not the Vercel frontend origin.
+    const apiUrl = (import.meta as any).env?.VITE_API_URL
+    let wsUrl: string
+
+    if (apiUrl && apiUrl.startsWith('http')) {
+      // Production: convert http(s)://... → ws(s)://...
+      const protocol = apiUrl.startsWith('https') ? 'wss' : 'ws'
+      wsUrl = apiUrl.replace(/^https?:\/\//, `${protocol}://`)
+    } else {
+      // Dev / fallback: use the current page origin
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      const host = window.location.hostname
+      const port = window.location.port
+      wsUrl = port ? `${protocol}://${host}:${port}` : `${protocol}://${host}`
+    }
 
     try {
       this.socket = io(wsUrl, {
-        path: '/ws',
         transports: ['websocket'],
         reconnection: true,
         reconnectionAttempts: this.maxReconnectAttempts,

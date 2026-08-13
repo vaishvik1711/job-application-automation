@@ -117,26 +117,47 @@ async def search_jobs(
     request: dict,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Search for jobs (placeholder - uses DiscoveryAgent)."""
-    # This would call the actual discovery agent
-    # For now, return empty results
+    """Search for jobs (uses DiscoveryAgent with real-time Socket.IO updates)."""
     from agents.discovery_agent import DiscoveryAgent
+    from api.websocket import emit_pipeline_update, emit_error
 
-    agent = await DiscoveryAgent.create()
-    result = await agent.discover_jobs(
-        filters=request.get("filters", {}),
-        limit_per_source=request.get("max_results_per_source", 50),
-        use_cache=request.get("use_cache", True),
-    )
-    await agent.close()
+    filters = request.get("filters", {})
+    sources = filters.get("sources", ["indeed", "linkedin", "glassdoor", "jobbank", "company_careers"])
+    total_sources = len(sources)
 
-    return ApiResponse(data={
-        "jobs": [_job_to_schema(j) for j in result.jobs],
-        "total_found": result.total_found,
-        "sources_searched": result.sources_used,
-        "search_duration_ms": result.search_duration_ms,
-        "duplicates_removed": result.duplicates_removed,
-    })
+    try:
+        await emit_pipeline_update(
+            stage="search",
+            current=0,
+            total=total_sources,
+            message=f"Searching {total_sources} job sources...",
+        )
+
+        agent = await DiscoveryAgent.create()
+        result = await agent.discover_jobs(
+            filters=filters,
+            limit_per_source=request.get("max_results_per_source", 50),
+            use_cache=request.get("use_cache", True),
+        )
+        await agent.close()
+
+        await emit_pipeline_update(
+            stage="search",
+            current=total_sources,
+            total=total_sources,
+            message=f"Found {result.total_found} jobs across {len(result.sources_used)} sources",
+        )
+
+        return ApiResponse(data={
+            "jobs": [_job_to_schema(j) for j in result.jobs],
+            "total_found": result.total_found,
+            "sources_searched": result.sources_used,
+            "search_duration_ms": result.search_duration_ms,
+            "duplicates_removed": result.duplicates_removed,
+        })
+    except Exception as e:
+        await emit_error(f"Job search failed: {str(e)}")
+        raise
 
 
 @router.post("/jobs/{job_id}/analyze", response_model=ApiResponse)
