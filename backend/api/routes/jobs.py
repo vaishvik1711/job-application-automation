@@ -1,4 +1,5 @@
 """Jobs API routes."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
@@ -9,6 +10,8 @@ from api.dependencies import get_db_session
 from database.models import Job, JobMatch, JobStatus
 from database.repositories import RepositoryFactory
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -44,7 +47,20 @@ def _job_to_schema(job: Job) -> dict:
         "posted_date": job.date_posted.isoformat() if job.date_posted else "",
         "discovered_at": job.discovered_at.isoformat() if job.discovered_at else "",
         "status": job.status.value if job.status else "discovered",
+        # Match score placeholders populated by the search endpoint
+        "match_score": None,
+        "match_verdict": None,
+        "skill_match_pct": None,
     }
+
+
+def _enrich_with_match(job_dict: dict, match: Optional[JobMatch]) -> dict:
+    """Inject match data into a job dict (mutates and returns it)."""
+    if match is not None:
+        job_dict["match_score"] = match.match_score
+        job_dict["match_verdict"] = match.recommendation
+        job_dict["skill_match_pct"] = match.technical_score
+    return job_dict
 
 
 @router.get("/jobs", response_model=ApiResponse)
@@ -117,8 +133,9 @@ async def search_jobs(
     request: dict,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Search for jobs (uses DiscoveryAgent with real-time Socket.IO updates)."""
+    """Search for jobs and auto-analyze against the candidate profile."""
     from agents.discovery_agent import create_discovery_agent
+    from agents.matching_agent import MatchingAgent
     from api.websocket import emit_pipeline_update, emit_error
 
     filters = request.get("filters", {})
@@ -128,26 +145,20 @@ async def search_jobs(
         await emit_pipeline_update(
             stage="search",
             current=0,
-            total=1,
+            total=3,
             message="Initializing job search agent...",
         )
 
         # Map frontend filter format to the format expected by job sources.
-        # The generate-filters endpoint provides:
-        #   primary_titles – actual job titles from the profile (e.g., "Data Analyst")
-        #   keywords – individual skills (e.g., "SQL", "Python")
-        # Job sources search by title first, so primary_titles is what produces
-        # relevant results; keywords/skills become supplementary search terms.
         search_filters = dict(filters)
         if not search_filters.get("primary_titles"):
             keywords = filters.get("keywords", [])
             if isinstance(keywords, str):
                 keywords = [keywords]
-            # Without job titles from the filter generator, use the first
-            # few keywords as title-like search terms.
             search_filters["primary_titles"] = keywords[:5]
             search_filters["secondary_titles"] = []
 
+        # --- Phase 1: Discover jobs ---
         agent = await create_discovery_agent()
         result = await agent.discover_jobs(
             filters=search_filters,
@@ -155,8 +166,14 @@ async def search_jobs(
         )
         await agent.close()
 
-        # Fetch jobs discovered within the last hour (the agent saves jobs in
-        # its own session, so use a time window instead of a pre-search marker).
+        await emit_pipeline_update(
+            stage="search",
+            current=1,
+            total=3,
+            message=f"Found {result.jobs_found} jobs across {len(result.sources_used)} sources ({result.jobs_new} new)",
+        )
+
+        # Fetch jobs from DB.
         one_hour_ago = datetime.utcnow() - timedelta(hours=1)
         stmt = (
             select(Job)
@@ -167,15 +184,46 @@ async def search_jobs(
         db_result = await session.execute(stmt)
         jobs = db_result.scalars().all()
 
+        # --- Phase 2: Auto-match against profile ---
+        job_ids = [j.id for j in jobs if j.id]
+        matching_result_text = ""
+        if job_ids:
+            await emit_pipeline_update(
+                stage="matching",
+                current=2,
+                total=3,
+                message=f"Analyzing {len(job_ids)} jobs against your profile...",
+            )
+            try:
+                m_agent = MatchingAgent()
+                m_result = await m_agent.match_jobs(job_ids=job_ids)
+                matching_result_text = (
+                    f" | {m_result.jobs_matched} matched"
+                    f" ({m_result.jobs_qualified} qualified)"
+                )
+            except Exception as match_err:
+                logger.warning("Auto-matching failed (search continues): %s", match_err)
+                matching_result_text = " | matching skipped"
+
+        # --- Phase 3: Enrich jobs with match data ---
+        enriched_jobs = []
+        for j in jobs:
+            job_dict = _job_to_schema(j)
+            # Load match from DB
+            match_stmt = select(JobMatch).where(JobMatch.job_id == j.id).limit(1)
+            match_result = await session.execute(match_stmt)
+            match = match_result.scalars().first()
+            enriched_jobs.append(_enrich_with_match(job_dict, match))
+
         await emit_pipeline_update(
-            stage="search",
-            current=1,
-            total=1,
-            message=f"Found {result.jobs_found} jobs across {len(result.sources_used)} sources ({result.jobs_new} new)",
+            stage="complete",
+            current=3,
+            total=3,
+            message=f"Search complete — {result.jobs_found} jobs found{matching_result_text}",
         )
 
         return ApiResponse(data={
-            "jobs": [_job_to_schema(j) for j in jobs],
+            "jobs": enriched_jobs,
             "total_found": result.jobs_found,
             "sources_searched": result.sources_used,
             "search_duration_ms": 0,

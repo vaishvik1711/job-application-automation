@@ -205,8 +205,8 @@ export function JobSearch() {
               job={job}
               isSelected={selectedJobs.has(job.id)}
               onSelect={() => toggleJobSelection(job.id)}
-              showMatchScore={job.status === 'MATCHED' || job.status === 'QUALIFIED'}
-              matchScore={job.status === 'MATCHED' ? 75 : job.status === 'QUALIFIED' ? 88 : undefined}
+              showMatchScore={job.match_score != null}
+              matchScore={job.match_score ?? undefined}
               onAnalyze={() => handleAnalyzeSingle(job)}
             />
           ))}

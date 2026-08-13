@@ -478,9 +478,9 @@ async def generate_filters(
             detail="Profile not found. Save your profile first.",
         )
 
-    # Build keywords from skills + job titles
-    all_skills = (profile.technical_skills or []) + (profile.tools or []) + (profile.programming_languages or [])
-    keywords = list(set(all_skills)) if all_skills else []
+    # Build keywords from job titles (roles the user has held / wants)
+    all_titles = (profile.job_titles or []) + (profile.preferred_job_titles or [])
+    keywords = list(set(all_titles)) if all_titles else ["Data Analyst", "Business Analyst"]
 
     # Calculate experience to infer experience levels
     total_exp_years = 0

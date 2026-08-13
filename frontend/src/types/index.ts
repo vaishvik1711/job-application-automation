@@ -174,6 +174,9 @@ export interface Job {
   deduplication_key?: string
   is_duplicate?: boolean
   duplicate_of?: string
+  match_score?: number
+  match_verdict?: string
+  skill_match_pct?: number
 }
 
 export type JobStatus =
