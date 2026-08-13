@@ -1,12 +1,11 @@
 name = "job-application-automation"
 compatibility_date = "2026-08-13"
 
-# Cloudflare Pages configuration
-# The build runs from `frontend/` (set as Root Directory in the dashboard)
-# so the output directory is just `dist` relative to `frontend/`
-pages_build_output_dir = "dist"
+# Cloudflare Pages — the build runs inside frontend/ (Root Directory)
+# so the Vite output goes to frontend/dist/
+# This path is relative to the repo root where this file lives
+pages_build_output_dir = "frontend/dist"
 
-# Security headers
 [vars]
 
 [observability]
