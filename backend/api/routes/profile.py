@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from api.schema import CandidateProfileSchema, ApiResponse
+from api.schemas import CandidateProfileSchema, ApiResponse
 from api.dependencies import get_db_session, get_supabase_client
 from database.models import CandidateProfile
 import json
