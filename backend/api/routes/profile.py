@@ -6,9 +6,24 @@ from api.schemas import CandidateProfileSchema, ApiResponse
 from api.dependencies import get_db_session, get_supabase_client
 from database.models import CandidateProfile
 import json
+import os
+import tempfile
 from uuid import uuid4
 
 router = APIRouter()
+
+
+def _parse_resume_from_bytes(file_content: bytes, filename: str):
+    """Parse resume from in-memory bytes by writing to a temp file first."""
+    suffix = os.path.splitext(filename)[1].lower()
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        from resume.parser import parse_resume
+        return parse_resume(tmp_path)
+    finally:
+        os.unlink(tmp_path)
 
 
 @router.get("/profile", response_model=ApiResponse)
@@ -110,8 +125,7 @@ async def upload_resume(
     file_url = supabase.storage.from_("resumes").get_public_url(file_name)
 
     # Parse the resume using existing backend logic
-    from resume.parser import parse_resume
-    parsed = await parse_resume(file_content, file.filename)
+    parsed = _parse_resume_from_bytes(file_content, file.filename)
 
     return ApiResponse(data={
         "file_id": file_name,
@@ -140,8 +154,7 @@ async def parse_resume_endpoint(
             )
         file_content = res
 
-    from resume.parser import parse_resume
-    parsed = await parse_resume(file_content, file_id)
+    parsed = _parse_resume_from_bytes(file_content, file_id)
 
     return ApiResponse(data={
         "profile": parsed,

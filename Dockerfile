@@ -32,6 +32,8 @@ RUN pip install --no-cache-dir \
     "pandas>=2.0.0" \
     "openpyxl>=3.1.0" \
     "python-docx>=1.1.0" \
+    "pdfplumber>=0.11.0" \
+    "PyPDF2>=3.0.0" \
     "playwright>=1.40.0" \
     "tenacity>=8.3.0" \
     "python-dateutil>=2.8.0" \
