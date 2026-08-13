@@ -257,15 +257,48 @@ async def update_profile(
     data: dict,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Update the candidate profile."""
+    """Create or update the candidate profile (upsert)."""
     result = await session.execute(select(CandidateProfile))
     profile = result.scalars().first()
 
     if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
+        # First save — create a profile row from the frontend data
+        pi = data.get("personal_info", {})
+        skills_data = data.get("skills", []) or []
+        profile = CandidateProfile(
+            name=pi.get("full_name", ""),
+            email=pi.get("email", ""),
+            phone=pi.get("phone", ""),
+            city=pi.get("location", ""),
+            linkedin_url=pi.get("linkedin", ""),
+            github_url=pi.get("github", ""),
+            portfolio_url=pi.get("portfolio", ""),
+            technical_skills=[s.get("name", s) if isinstance(s, dict) else s for s in skills_data],
+            employment_history=data.get("experience", []) or [],
+            education=data.get("education", []) or [],
+            certifications=data.get("certifications", []) or [],
         )
+        session.add(profile)
+        await session.flush()
+
+        return ApiResponse(data={
+            "id": str(profile.id),
+            "personal_info": {
+                "full_name": profile.name,
+                "email": profile.email,
+                "phone": profile.phone,
+                "location": profile.city,
+                "linkedin": profile.linkedin_url,
+                "github": profile.github_url,
+                "portfolio": profile.portfolio_url,
+            },
+            "skills": skills_data,
+            "experience": data.get("experience", []) or [],
+            "education": data.get("education", []) or [],
+            "certifications": data.get("certifications", []) or [],
+            "created_at": profile.created_at.isoformat() if profile.created_at else None,
+            "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+        })
 
     # Update fields from the frontend schema
     if "personal_info" in data:
