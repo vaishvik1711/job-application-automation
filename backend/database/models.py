@@ -86,6 +86,7 @@ class CandidateProfile(Base):
     education: Mapped[List[dict]] = mapped_column(JSON, default=list)
     certifications: Mapped[List[dict]] = mapped_column(JSON, default=list)
     employment_history: Mapped[List[dict]] = mapped_column(JSON, default=list)
+    additional_experience: Mapped[List[dict]] = mapped_column(JSON, default=list)
     skills: Mapped[List[str]] = mapped_column(JSON, default=list)
     technical_skills: Mapped[List[str]] = mapped_column(JSON, default=list)
     business_skills: Mapped[List[str]] = mapped_column(JSON, default=list)

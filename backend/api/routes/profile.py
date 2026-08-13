@@ -261,6 +261,7 @@ async def get_profile(session: AsyncSession = Depends(get_db_session)):
         "experience": profile.employment_history or [],
         "education": profile.education or [],
         "certifications": profile.certifications or [],
+        "additional_experience": profile.additional_experience or [],
         "created_at": profile.created_at.isoformat() if profile.created_at else None,
         "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
     }
@@ -293,6 +294,7 @@ async def update_profile(
             employment_history=data.get("experience", []) or [],
             education=data.get("education", []) or [],
             certifications=data.get("certifications", []) or [],
+            additional_experience=data.get("additional_experience", []) or [],
         )
         session.add(profile)
         await session.flush()
@@ -312,6 +314,7 @@ async def update_profile(
             "experience": data.get("experience", []) or [],
             "education": data.get("education", []) or [],
             "certifications": data.get("certifications", []) or [],
+            "additional_experience": data.get("additional_experience", []) or [],
             "created_at": profile.created_at.isoformat() if profile.created_at else None,
             "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
         })
@@ -343,6 +346,9 @@ async def update_profile(
     if "certifications" in data:
         profile.certifications = data["certifications"]
 
+    if "additional_experience" in data:
+        profile.additional_experience = data["additional_experience"]
+
     await session.flush()
 
     # Return full profile data so the frontend can safely setProfile(response)
@@ -369,6 +375,7 @@ async def update_profile(
         "experience": profile.employment_history or [],
         "education": profile.education or [],
         "certifications": profile.certifications or [],
+        "additional_experience": profile.additional_experience or [],
         "created_at": profile.created_at.isoformat() if profile.created_at else None,
         "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
     })
@@ -422,6 +429,85 @@ async def upload_resume(
         "url": file_url,
         "profile": profile_data,
     })
+
+
+@router.post("/profile/generate-filters", response_model=ApiResponse)
+async def generate_filters(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Generate job search filters from the saved candidate profile."""
+    from datetime import datetime
+
+    result = await session.execute(select(CandidateProfile))
+    profile = result.scalars().first()
+
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found. Save your profile first.",
+        )
+
+    # Build keywords from skills + job titles
+    all_skills = (profile.technical_skills or []) + (profile.tools or []) + (profile.programming_languages or [])
+    keywords = list(set(all_skills)) if all_skills else []
+
+    # Calculate experience to infer experience levels
+    total_exp_years = 0
+    for emp in (profile.employment_history or []):
+        try:
+            start = int(emp.get("start_date", "0")[:4]) if emp.get("start_date") else 0
+            end_str = emp.get("end_date", "").lower()
+            if end_str in ("present", "current", "", None):
+                end = datetime.now().year
+            else:
+                end = int(str(end_str)[:4])
+            if start and end and end > start:
+                total_exp_years += end - start
+        except (ValueError, TypeError):
+            pass
+
+    experience_levels = []
+    if total_exp_years >= 10:
+        experience_levels.append("senior")
+    if total_exp_years >= 3:
+        experience_levels.append("mid")
+    if 0 <= total_exp_years < 3:
+        experience_levels.append("entry")
+    if not experience_levels:
+        experience_levels = ["entry", "mid", "senior"]
+
+    # Locations: prefer stored preferences, fall back to profile city
+    locations = list(profile.preferred_locations) if profile.preferred_locations else []
+    if not locations and profile.city:
+        locations = [profile.city, "Remote Canada"]
+
+    # Map employment preferences to job_type enum values
+    pref_map = {
+        "full_time": "full-time",
+        "part_time": "part-time",
+        "contract": "contract",
+        "internship": "internship",
+        "temporary": "temporary",
+        "full-time": "full-time",
+        "part-time": "part-time",
+    }
+    job_types_raw = profile.employment_preferences or ["Full-time"]
+    job_types = list(set(
+        pref_map.get(jt.lower(), jt.lower())
+        for jt in job_types_raw
+    ))
+
+    filters = {
+        "keywords": keywords,
+        "locations": locations,
+        "job_types": job_types,
+        "experience_levels": list(set(experience_levels)),
+        "sources": ["indeed", "linkedin", "glassdoor", "jobbank", "company_careers"],
+        "remote_only": "remote" in [r.lower() for r in (profile.remote_preferences or [])],
+        "posted_within_days": 7,
+    }
+
+    return ApiResponse(data={"filters": filters})
 
 
 @router.post("/profile/parse", response_model=ApiResponse)

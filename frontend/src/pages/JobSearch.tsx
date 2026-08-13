@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { JobSearchFormData, Job } from '@/types'
 import { useJobSearch, useJobs } from '@/hooks/useApi'
@@ -82,6 +82,27 @@ export function JobSearch() {
     },
     [jobSearchMutation, setSearching, setSearchProgress, setSearchResults, selectAllJobs]
   )
+
+  // Auto-trigger search if the store has pre-filled filters (from profile → jobs flow)
+  const autoSearchFired = useRef(false)
+  useEffect(() => {
+    const storeFilters = useJobSearchStore.getState().filters
+    if (autoSearchFired.current || !storeFilters.keywords?.length) return
+    autoSearchFired.current = true
+
+    const searchData: JobSearchFormData = {
+      keywords: storeFilters.keywords.join(', '),
+      locations: storeFilters.locations || [],
+      job_types: storeFilters.job_types || [],
+      experience_levels: storeFilters.experience_levels || [],
+      sources: storeFilters.sources || ['indeed', 'linkedin', 'glassdoor', 'jobbank', 'company_careers'],
+      remote_only: storeFilters.remote_only || false,
+      posted_within_days: storeFilters.posted_within_days || 7,
+      salary_min: storeFilters.salary_min,
+      salary_max: storeFilters.salary_max,
+    }
+    handleSearch(searchData)
+  }, [handleSearch])
 
   const handleSelectAll = () => {
     if (selectedJobs.size === jobs.length && jobs.length > 0) {

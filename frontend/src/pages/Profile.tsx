@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -11,7 +12,8 @@ import { CertificationsForm } from '@/components/profile/CertificationsForm'
 import { AdditionalExperienceForm } from '@/components/profile/AdditionalExperienceForm'
 import { Upload, User, Sparkles, Briefcase, GraduationCap, Award, Star, CheckCircle } from 'lucide-react'
 import { useProfileStore } from '@/store/index'
-import { updateProfile } from '@/services/api'
+import { useJobSearchStore } from '@/store/index'
+import { updateProfile, generateJobFilters } from '@/services/api'
 import { CandidateProfile } from '@/types'
 import { toast } from 'sonner'
 
@@ -28,7 +30,9 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id']
 
 export function Profile() {
+  const navigate = useNavigate()
   const { profile, setProfile, resumeUploading } = useProfileStore()
+  const { setFilters } = useJobSearchStore()
   const [activeTab, setActiveTab] = useState<TabId>('resume')
   const [savingTabs, setSavingTabs] = useState<Record<TabId, boolean>>({
     resume: false,
@@ -47,13 +51,59 @@ export function Profile() {
       try {
         const updated = await updateProfile(updates)
         setProfile(updated)
+
+        // Check if ALL tabs are now complete — if so, auto-generate job filters
+        // and navigate to the job search page.
+        const allTabs: TabId[] = ['personal', 'skills', 'experience', 'education', 'certifications', 'additional']
+        const allComplete = allTabs.every((tabId) => {
+          switch (tabId) {
+            case 'personal':
+              return !!updated.personal_info?.full_name && !!updated.personal_info?.email
+            case 'skills':
+              return (updated.skills?.length || 0) > 0
+            case 'experience':
+              return (updated.experience?.length || 0) > 0
+            case 'education':
+              return (updated.education?.length || 0) > 0
+            case 'certifications':
+              return (updated.certifications?.length || 0) > 0
+            case 'additional':
+              return (updated.additional_experience?.length || 0) > 0
+            default:
+              return false
+          }
+        })
+
         toast.success('Profile updated successfully')
+
+        if (allComplete) {
+          try {
+            const result = await generateJobFilters()
+            const filters = result.filters
+            if (filters) {
+              setFilters({
+                keywords: filters.keywords,
+                locations: filters.locations,
+                job_types: filters.job_types,
+                experience_levels: filters.experience_levels,
+                sources: filters.sources,
+                remote_only: filters.remote_only,
+                posted_within_days: filters.posted_within_days,
+              })
+              toast.success('Job search filters generated! Navigating to job search...')
+              navigate('/job-search')
+            }
+          } catch (filterErr: any) {
+            console.error('Failed to generate job filters:', filterErr)
+            toast.error('Profile saved. Could not auto-generate filters.')
+          }
+        }
       } catch (error: any) {
         console.error('Failed to update profile:', error)
         toast.error(error.response?.data?.detail || 'Failed to update profile')
       }
     },
-    [profile, setProfile]
+    [profile, setProfile, setFilters, navigate]
   )
 
   const handleResumeComplete = useCallback(
