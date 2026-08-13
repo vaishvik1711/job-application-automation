@@ -13,10 +13,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy Python requirements and install dependencies first (better layer caching)
+# Also install API-specific requirements to ensure fastapi/uvicorn are present
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    python -c "import uvicorn; print('uvicorn version:', uvicorn.__version__)" && \
-    python -c "import fastapi; print('fastapi version:', fastapi.__version__)"
+COPY backend/api/requirements.txt ./api-requirements.txt
+RUN echo "=== ROOT requirements.txt ===" && \
+    cat requirements.txt && \
+    echo "=== API requirements.txt ===" && \
+    cat api-requirements.txt && \
+    echo "=== Installing... ===" && \
+    pip install --no-cache-dir -r api-requirements.txt -r requirements.txt && \
+    python -c "import uvicorn; print('uvicorn OK:', uvicorn.__version__)" && \
+    python -c "import fastapi; print('fastapi OK:', fastapi.__version__)"
 
 # Copy the entire project
 COPY . .
