@@ -165,9 +165,12 @@ class ResumeParser:
         if para.style and "heading" in para.style.name.lower():
             return True
 
-        # Check if all runs are bold — skip single-line names that aren't known headers
+        # Bold text is only treated as a section header if it contains a known keyword.
+        # This avoids splitting job titles, company names, and degree names into their own
+        # sections (they're bold too, but aren't section headers).
         if para.runs and all(run.bold for run in para.runs if run.text.strip()):
-            return True
+            if any(h in text_lower for h in self.SECTION_HEADERS):
+                return True
 
         return False
 
