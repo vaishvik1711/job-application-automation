@@ -67,4 +67,4 @@ data/
 supabase/.temp/
 
 # Other
-jobbank_debug*.html
+jobbank_debug*.html*.png
