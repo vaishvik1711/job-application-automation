@@ -46,7 +46,7 @@ class MatchingAgent:
         self.min_technical_score = self.config.get("min_technical_score", 70)
         self.min_soft_skills_score = self.config.get("min_soft_skills_score", 50)
         # Parallel processing config
-        self.max_concurrent_matches = self.config.get("max_concurrent_matches", 3)
+        self.max_concurrent_matches = self.config.get("max_concurrent_matches", 8)
 
     async def match_jobs(
         self,
@@ -236,84 +236,93 @@ class MatchingAgent:
             else:
                 return await repos.jobs.get_unmatched(limit=limit)
 
+    def _is_plausibly_relevant(self, job: Job, profile: PydanticCandidateProfile) -> bool:
+        """Fast pre-filter: skip LLM matching for obviously irrelevant jobs."""
+        job_title_lower = job.title.lower()
+        desc_lower = (job.description or "").lower()
+
+        # Check preferred job titles (broad token overlap)
+        preferred_tokens = set()
+        for t in profile.preferred_job_titles:
+            for word in t.lower().split():
+                preferred_tokens.add(word.rstrip("s"))
+        job_tokens = set(job_title_lower.split())
+        if preferred_tokens & job_tokens:
+            return True
+
+        # Check candidate skills in job description
+        all_skills = profile.get_verified_skills()
+        top_skills = [s.name.lower() for s in all_skills[:10] if s.verified]
+        for skill in top_skills:
+            if skill in job_title_lower or skill in desc_lower:
+                return True
+
+        # No match at all — likely irrelevant
+        return False
+
     async def _match_single_job(self, job: Job, profile: PydanticCandidateProfile) -> Optional[JobMatchResult]:
         """Match a single job against the profile using LLM."""
-        # Prepare job data for LLM
+        # Skip LLM for irrelevant jobs (saves time)
+        if not self._is_plausibly_relevant(job, profile):
+            logger.debug(f"Skipping LLM for irrelevant job: {job.title} @ {job.company}")
+            return JobMatchResult(
+                match_score=5,
+                technical_score=5,
+                soft_skills_score=5,
+                recommendation="REJECT",
+                strong_matches=[],
+                partial_matches=[],
+                missing_requirements=["Job title/description doesn't match candidate profile"],
+                preferred_requirements_missing=[],
+                missing_soft_skills=[],
+                concerns=["Job appears unrelated to candidate's background"],
+                reasoning="Pre-filter: job title and description have no overlap with candidate's skills or preferred titles.",
+            )
+
         job_data = {
             "title": job.title,
             "company": job.company,
             "location": job.location,
             "remote_type": job.remote_type.value if job.remote_type else "on_site",
-            "employment_type": job.employment_type.value if job.employment_type else "full_time",
-            "description": job.description,
-            "requirements": job.requirements or "",
-            "preferred_qualifications": job.preferred_qualifications or "",
-            "skills": job.skills or [],
-            "tools": job.tools or [],
+            "description": job.description[:5000] if job.description else "",
+            "requirements": (job.requirements or "")[:3000],
+            "skills": job.skills[:15] if job.skills else [],
             "salary_min": job.salary_min,
-            "salary_max": job.salary_max,
-            "currency": job.currency,
         }
-
-        # Prepare profile summary for LLM
         profile_summary = self._build_profile_summary(profile)
 
-        # Run LLM matching
         match_result = await self.llm.generate_json(
             system_prompt=self.match_prompt,
-            user_prompt=f"JOB:\n{job_data}\n\nCANDIDATE PROFILE:\n{profile_summary}",
+            user_prompt=f"JOB:\n{job_data}\n\nPROFILE:\n{profile_summary}",
             schema=JobMatchResult,
         )
-
         return match_result
 
     def _build_profile_summary(self, profile: PydanticCandidateProfile) -> str:
-        """Build a concise profile summary for LLM."""
-        parts = []
-
-        # Skills
+        """Build a concise profile summary for LLM — compact format for speed."""
         all_skills = profile.get_verified_skills()
         skill_names = [s.name for s in all_skills]
-        parts.append(f"SKILLS: {', '.join(skill_names[:30])}")
-
-        # Experience
+        emp = profile.employment_history
         exp_years = sum(
             (int(e.end_date) if e.end_date and e.end_date.lower() not in ("present", "current") else datetime.now().year)
-            - int(e.start_date)
-            for e in profile.employment_history
-            if e.start_date and e.start_date.isdigit()
+            - int(e.start_date) for e in emp if e.start_date and e.start_date.isdigit()
         )
-        parts.append(f"TOTAL EXPERIENCE: ~{exp_years} years")
+        roles = "; ".join(f"{e.title} @ {e.company} ({e.start_date}-{e.end_date or 'Present'})" for e in emp[:3])
+        edus = "; ".join(f"{e.degree} {e.institution}" for e in profile.education)
+        certs = ", ".join(c.name for c in profile.certifications) if profile.certifications else ""
 
-        # Recent roles
-        if profile.employment_history:
-            parts.append("RECENT ROLES:")
-            for emp in profile.employment_history[:3]:
-                parts.append(f"  {emp.title} at {emp.company} ({emp.start_date}-{emp.end_date or 'Present'})")
-
-        # Education
-        if profile.education:
-            parts.append("EDUCATION:")
-            for edu in profile.education:
-                parts.append(f"  {edu.degree} from {edu.institution} ({edu.graduation_year or 'N/A'})")
-
-        # Certifications
-        if profile.certifications:
-            cert_names = [c.name for c in profile.certifications]
-            parts.append(f"CERTIFICATIONS: {', '.join(cert_names)}")
-
-        # Preferences
-        parts.append(f"PREFERRED TITLES: {', '.join(profile.preferred_job_titles)}")
-        parts.append(f"PREFERRED LOCATIONS: {', '.join(profile.preferred_locations or ['Remote Canada'])}")
-        parts.append(f"REMOTE PREFERENCES: {', '.join(profile.remote_preferences or ['Remote', 'Hybrid'])}")
-
-        # Exclusions
-        if profile.excluded_titles:
-            parts.append(f"EXCLUDED TITLES: {', '.join(profile.excluded_titles)}")
-        if profile.excluded_requirements:
-            parts.append(f"EXCLUDED REQUIREMENTS: {', '.join(profile.excluded_requirements)}")
-
-        return "\n".join(parts)
+        return (
+            f"SKILLS: {', '.join(skill_names[:30])} | "
+            f"EXP: ~{exp_years}y | "
+            f"ROLES: {roles} | "
+            f"EDUCATION: {edus} | "
+            f"CERTS: {certs} | "
+            f"TITLES: {', '.join(profile.preferred_job_titles)} | "
+            f"LOCS: {', '.join(profile.preferred_locations or ['Remote Canada'])} | "
+            f"REMOTE: {', '.join(profile.remote_preferences or ['Remote', 'Hybrid'])}"
+            + (f" | EXCLUDE TITLES: {', '.join(profile.excluded_titles)}" if profile.excluded_titles else "")
+            + (f" | EXCLUDE REQS: {', '.join(profile.excluded_requirements)}" if profile.excluded_requirements else "")
+        )
 
     async def _save_match(self, job_id: int, match_result: JobMatchResult):
         """Save match result to database."""

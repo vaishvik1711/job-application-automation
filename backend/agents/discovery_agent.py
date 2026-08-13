@@ -92,6 +92,7 @@ class DiscoveryAgent:
         filters: Dict[str, Any] = None,
         limit_per_source: int = 50,
         dry_run: bool = False,
+        sources: List[str] = None,
     ) -> DiscoveryResult:
         """
         Discover jobs from all configured sources.
@@ -110,8 +111,12 @@ class DiscoveryAgent:
         result = DiscoveryResult()
         all_jobs: List[RawJob] = []
 
-        # Search each source
+        # Search each source (optionally filtered by requested sources)
+        selected_sources = set(sources) if sources else None
         for source in self.sources:
+            if selected_sources and source.name not in selected_sources:
+                logger.info(f"Skipping {source.name} (not in requested sources: {sources})")
+                continue
             try:
                 logger.info(f"Searching jobs from {source.name}")
                 result.sources_used.append(source.name)

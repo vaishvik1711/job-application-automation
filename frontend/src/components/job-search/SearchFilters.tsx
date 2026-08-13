@@ -39,12 +39,9 @@ const EXPERIENCE_LEVEL_OPTIONS: { value: ExperienceLevel; label: string }[] = [
 ]
 
 const JOB_SOURCE_OPTIONS: { value: JobSource; label: string }[] = [
+  { value: 'jobbank', label: 'JobBank (Gov. Canada)' },
   { value: 'indeed', label: 'Indeed' },
   { value: 'linkedin', label: 'LinkedIn' },
-  { value: 'glassdoor', label: 'Glassdoor' },
-  { value: 'jobbank', label: 'JobBank' },
-  { value: 'company_careers', label: 'Company Careers' },
-  { value: 'other', label: 'Other' },
 ]
 
 const POSTED_WITHIN_OPTIONS = [

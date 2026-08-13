@@ -158,11 +158,28 @@ async def search_jobs(
             search_filters["primary_titles"] = keywords[:5]
             search_filters["secondary_titles"] = []
 
+        # Map frontend source names to backend source names.
+        frontend_sources = filters.get("sources", [])
+        backend_source_map = {
+            "indeed": "jobspy",
+            "linkedin": "jobspy",
+            "jobbank": "jobbank",
+        }
+        backend_sources = None
+        if frontend_sources:
+            mapped = set()
+            for fs in frontend_sources:
+                bs = backend_source_map.get(fs)
+                if bs:
+                    mapped.add(bs)
+            backend_sources = list(mapped) if mapped else None
+
         # --- Phase 1: Discover jobs ---
         agent = await create_discovery_agent()
         result = await agent.discover_jobs(
             filters=search_filters,
             limit_per_source=max_results,
+            sources=backend_sources,
         )
         await agent.close()
 
