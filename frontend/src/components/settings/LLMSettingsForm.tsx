@@ -38,13 +38,13 @@ interface LLMSettingsFormProps {
 }
 
 /**
- * Default model — read from the ANTHROPIC_MODEL env var (set in
+ * Default model — read from the VITE_ANTHROPIC_MODEL env var (set in
  * .claude/settings.json) so the frontend stays in sync with the backend.
- * Falls back to the same value used in .claude/settings.json.
+ * If the env var is unset, the model field starts empty and must be
+ * filled in manually — there is no hardcoded fallback.
  */
 const DEFAULT_MODEL =
-  import.meta.env.VITE_ANTHROPIC_MODEL ||
-  'deepseek/deepseek-v4-flash'
+  import.meta.env.VITE_ANTHROPIC_MODEL || ''
 
 const PROVIDER_OPTIONS = [
   { value: 'openai', label: 'OpenAI', description: 'GPT-4o, GPT-4, etc.' },
@@ -79,10 +79,7 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
     form.setValue('provider', newProvider as LLMFormData['provider'])
 
     const providerDefaults: Record<string, string> = {
-      openai: 'gpt-4o',
       anthropic: DEFAULT_MODEL,
-      local: 'llama3',
-      nvidia: 'nvidia/nemotron-4-340b',
     }
     form.setValue('model', providerDefaults[newProvider] || '')
   }
@@ -172,14 +169,14 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
           <Input
             id="model"
             {...form.register('model')}
-            placeholder={provider === 'anthropic' ? DEFAULT_MODEL : provider === 'openai' ? 'gpt-4o' : 'model-name'}
+            placeholder={provider === 'anthropic' ? DEFAULT_MODEL || 'model-name' : 'model-name'}
             error={form.formState.errors.model?.message}
             onChange={(e) => handleFormChange({ model: e.target.value })}
           />
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-            {provider === 'anthropic' && `Default: ${DEFAULT_MODEL}`}
-            {provider === 'openai' && 'Available models: gpt-4o, gpt-4-turbo, gpt-3.5-turbo'}
-            {provider === 'nvidia' && 'Available models: nvidia/nemotron-4-340b-reward, nvidia/nemotron-4-340b'}
+            {provider === 'anthropic' && `Default: ${DEFAULT_MODEL || 'set VITE_ANTHROPIC_MODEL env var'}`}
+            {provider === 'openai' && 'Enter your OpenAI model name (e.g. gpt-4o)'}
+            {provider === 'nvidia' && 'Enter your NVIDIA model name'}
             {provider === 'local' && 'Enter your local model identifier'}
           </p>
         </div>

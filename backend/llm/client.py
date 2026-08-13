@@ -28,12 +28,12 @@ class LLMClient:
     ):
         self.api_key = api_key or os.getenv("LLM_API_KEY")
         self.base_url = base_url or os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-        self.model = (
-            model
-            or os.getenv("ANTHROPIC_MODEL")
-            or os.getenv("LLM_MODEL")
-            or "deepseek/deepseek-v4-flash"
-        )
+        self.model = model or os.getenv("ANTHROPIC_MODEL") or os.getenv("LLM_MODEL")
+        if not self.model:
+            raise ValueError(
+                "No LLM model configured. Set ANTHROPIC_MODEL in .claude/settings.json "
+                "(or set the LLM_MODEL env var, or pass model= to LLMClient constructor)."
+            )
         self.temperature = temperature
         self.max_retries = max_retries
         self.timeout = timeout

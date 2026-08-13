@@ -11,7 +11,7 @@ from typing import Optional
 
 router = APIRouter()
 
-_DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "deepseek/deepseek-v4-flash")
+_DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL")
 
 DEFAULT_SETTINGS = {
     "llm": {
