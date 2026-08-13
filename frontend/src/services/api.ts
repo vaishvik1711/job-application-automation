@@ -78,7 +78,9 @@ export interface ParseResponse {
 export const profileApi = {
   get: () => api.get<ApiResponse<CandidateProfile>>('/profile'),
   create: (data: Partial<CandidateProfile>) => api.post<ApiResponse<CandidateProfile>>('/profile', data),
-  update: (data: Partial<CandidateProfile>) => api.patch<ApiResponse<CandidateProfile>>('/profile', data),
+  update: (data: Partial<CandidateProfile>) => api.patch<ApiResponse<CandidateProfile>>('/profile', data, {
+    timeout: 120000,  // 2 min — full profile payload can be large on first save
+  }),
   uploadResume: (file: File, onProgress?: (progress: number) => void) => {
     const formData = new FormData()
     formData.append('file', file)

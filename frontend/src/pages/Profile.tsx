@@ -49,13 +49,7 @@ export function Profile() {
       if (!profile) return
 
       try {
-        // Send the FULL profile merged with the current update so the backend
-        // persists everything on the first save — not just the one tab being
-        // saved.  Without this, saving a single tab overwrites the in-memory
-        // profile with a backend response that has empty arrays for every
-        // other section, losing the parsed resume data.
-        const fullPayload = { ...profile, ...updates }
-        const updated = await updateProfile(fullPayload)
+        const updated = await updateProfile(updates)
         setProfile(updated)
 
         // Check if ALL tabs are now complete — if so, auto-generate job filters
@@ -120,9 +114,17 @@ export function Profile() {
   )
 
   const handleResumeComplete = useCallback(
-    (parsedProfile: any) => {
+    async (parsedProfile: any) => {
       setProfile(parsedProfile)
       setActiveTab('personal')
+      // Immediately persist the parsed profile to the backend so subsequent
+      // tab saves only send incremental updates, not the full payload.
+      try {
+        const saved = await updateProfile(parsedProfile)
+        setProfile(saved)
+      } catch (err: any) {
+        console.warn('Initial profile save deferred (will be saved on first tab save):', err.message)
+      }
     },
     [setProfile]
   )
