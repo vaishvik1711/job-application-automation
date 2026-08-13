@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 import logging
 import socketio
+from sqlalchemy import text
 from api.websocket import sio
 
 from api.routes.health import router as health_router
@@ -27,14 +28,25 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
-# Create tables on startup (in addition to Supabase migrations)
+# Create / migrate tables on startup.
+# SQLAlchemy's create_all only creates missing tables — it does NOT add
+# columns to existing tables, so we must run ALTER TABLE for any new
+# columns added after the initial deployment.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables if they don't exist — tolerate DB connection failures
-    # so the app can still start and serve health checks.
     try:
         async with engine.begin() as conn:
             await conn.run_sync(db_models.Base.metadata.create_all)
+            # ------------------------------------------------------------------
+            # Schema migrations for columns added after initial deployment.
+            # ------------------------------------------------------------------
+            # 2026-08-13: added additional_experience to CandidateProfile
+            await conn.execute(
+                text(
+                    "ALTER TABLE candidate_profiles "
+                    "ADD COLUMN IF NOT EXISTS additional_experience JSON"
+                )
+            )
     except Exception as e:
         logger.warning("Database connection failed during startup: %s", e)
         logger.warning("Tables will not be created until the database is reachable.")
