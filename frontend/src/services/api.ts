@@ -144,7 +144,7 @@ export const jobsApi = {
   get: (id: string) => api.get<ApiResponse<Job>>(`/jobs/${id}`),
 
   search: (request: JobSearchRequest) =>
-    api.post<ApiResponse<JobSearchResponse>>('/jobs/search', request),
+    api.post<ApiResponse<JobSearchResponse>>('/jobs/search', request, { timeout: 180000 }),
 
   analyze: (id: string, weights?: MatchWeights) =>
     api.post<ApiResponse<MatchDetail>>(`/jobs/${id}/analyze`, { weights }),
