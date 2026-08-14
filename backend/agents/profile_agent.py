@@ -276,32 +276,9 @@ class ProfileAgent:
         # Extract contact info
         contact = parsed.contact_info
 
-        # Build skill entries
-        def make_skill_entries(items: List, category: str) -> List[SkillEntry]:
-            entries = []
-            for item in items:
-                if isinstance(item, SkillEntry):
-                    entries.append(item)
-                elif isinstance(item, dict):
-                    entries.append(SkillEntry(**item))
-                elif hasattr(item, 'skill') and hasattr(item, 'proficiency'):
-                    # Handle SkillMatch objects
-                    prof_map = {
-                        "expert": ProficiencyLevel.EXPERT,
-                        "advanced": ProficiencyLevel.ADVANCED,
-                        "intermediate": ProficiencyLevel.INTERMEDIATE,
-                        "beginner": ProficiencyLevel.BEGINNER,
-                    }
-                    entries.append(SkillEntry(
-                        name=item.skill,
-                        proficiency=prof_map.get(item.proficiency, ProficiencyLevel.INTERMEDIATE),
-                        source=getattr(item, 'source', ''),
-                        verified=getattr(item, 'verified', True),
-                        category=category,
-                    ))
-                else:
-                    entries.append(SkillEntry(name=str(item), category=category))
-            return entries
+        # Build skill entries — items are plain strings (no proficiency/years data)
+        def make_skill_entries(items: List[str], category: str) -> List[SkillEntry]:
+            return [SkillEntry(name=item, category=category) for item in items if item.strip()]
 
         technical_skills = make_skill_entries(analysis.strong_skills, "technical")
         technical_skills.extend(make_skill_entries(analysis.moderate_skills, "technical"))
@@ -371,10 +348,6 @@ class ProfileAgent:
         # Determine experience range
         total_years = self._calculate_total_experience(employment)
 
-        # Extract skill names from SkillMatch objects
-        def extract_names(items):
-            return [item.skill if hasattr(item, 'skill') else str(item) for item in items]
-
         profile = CandidateProfile(
             name=contact.get("name", ""),
             email=contact.get("email", ""),
@@ -388,9 +361,9 @@ class ProfileAgent:
             projects=projects,
             technical_skills=technical_skills,
             tools=tools,
-            industries=extract_names(analysis.industries),
-            job_titles=extract_names(analysis.primary_titles + analysis.secondary_titles),
-            preferred_job_titles=extract_names(analysis.primary_titles),
+            industries=analysis.industries,
+            job_titles=analysis.primary_titles + analysis.secondary_titles,
+            preferred_job_titles=analysis.primary_titles,
             preferred_locations=[],
             remote_preferences=analysis.remote_preferences if isinstance(analysis.remote_preferences, list) else [],
             additional_experience=additional_entries,

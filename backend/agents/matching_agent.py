@@ -42,9 +42,9 @@ class MatchingAgent:
         self.config = config or load_settings()
         self.llm = llm_client or get_llm_client()
         self.match_prompt = get_prompt("job_matching")
-        self.min_match_score = self.config.get("min_match_score", 70)
-        self.min_technical_score = self.config.get("min_technical_score", 70)
-        self.min_soft_skills_score = self.config.get("min_soft_skills_score", 50)
+        self.min_match_score = self.config.get("min_match_score", 50)
+        self.min_technical_score = self.config.get("min_technical_score", 50)
+        self.min_soft_skills_score = self.config.get("min_soft_skills_score", 0)
         # Parallel processing config
         self.max_concurrent_matches = self.config.get("max_concurrent_matches", 8)
 
@@ -266,9 +266,9 @@ class MatchingAgent:
         if not self._is_plausibly_relevant(job, profile):
             logger.debug(f"Skipping LLM for irrelevant job: {job.title} @ {job.company}")
             return JobMatchResult(
-                match_score=5,
-                technical_score=5,
-                soft_skills_score=5,
+                match_score=0,
+                technical_score=0,
+                soft_skills_score=100,
                 recommendation="REJECT",
                 strong_matches=[],
                 partial_matches=[],

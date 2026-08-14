@@ -4,9 +4,9 @@ application:
   daily_target: 25
   minimum: 20
   maximum: 30
-  minimum_match_score: 75
-  min_technical_score: 70
-  min_soft_skills_score: 50
+  minimum_match_score: 50
+  min_technical_score: 50
+  min_soft_skills_score: 0
 
 resume:
   preserve_format: true

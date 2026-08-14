@@ -28,13 +28,13 @@ class JobAnalysis(BaseModel):
 
 
 class ProfileAnalysis(BaseModel):
-    strong_skills: List[SkillMatch] = Field(default_factory=list)
-    moderate_skills: List[SkillMatch] = Field(default_factory=list)
-    supporting_skills: List[SkillMatch] = Field(default_factory=list)
-    tools: List[SkillMatch] = Field(default_factory=list)
-    industries: List[SkillMatch] = Field(default_factory=list)
-    primary_titles: List[SkillMatch] = Field(default_factory=list)
-    secondary_titles: List[SkillMatch] = Field(default_factory=list)
+    strong_skills: List[str] = Field(default_factory=list, description="Skills explicitly demonstrated with evidence")
+    moderate_skills: List[str] = Field(default_factory=list, description="Skills mentioned with some evidence")
+    supporting_skills: List[str] = Field(default_factory=list, description="Skills mentioned briefly or in passing")
+    tools: List[str] = Field(default_factory=list, description="Software, platforms, tools explicitly used")
+    industries: List[str] = Field(default_factory=list)
+    primary_titles: List[str] = Field(default_factory=list)
+    secondary_titles: List[str] = Field(default_factory=list)
     search_keywords: List[str] = Field(default_factory=list)
     negative_keywords: List[str] = Field(default_factory=list)
     experience_range: dict = Field(default_factory=lambda: {"min": 0, "max": 10})
