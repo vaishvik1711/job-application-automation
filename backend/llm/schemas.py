@@ -32,6 +32,7 @@ class ProfileAnalysis(BaseModel):
     moderate_skills: List[str] = Field(default_factory=list, description="Skills mentioned with some evidence")
     supporting_skills: List[str] = Field(default_factory=list, description="Skills mentioned briefly or in passing")
     tools: List[str] = Field(default_factory=list, description="Software, platforms, tools explicitly used")
+    title_keywords: List[str] = Field(default_factory=list, description="Keywords that must appear in relevant job titles (e.g. consultant, analyst, engineer, BI)")
     industries: List[str] = Field(default_factory=list)
     primary_titles: List[str] = Field(default_factory=list)
     secondary_titles: List[str] = Field(default_factory=list)

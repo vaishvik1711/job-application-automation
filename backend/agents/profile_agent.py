@@ -124,6 +124,7 @@ class CandidateProfile(BaseModel):
     industries: List[str] = Field(default_factory=list)
     job_titles: List[str] = Field(default_factory=list)
     preferred_job_titles: List[str] = Field(default_factory=list)
+    title_keywords: List[str] = Field(default_factory=list, description="Keywords that must appear in relevant job titles, AI-generated from resume")
     preferred_locations: List[str] = Field(default_factory=list)
     remote_preferences: List[str] = Field(default_factory=list)
     employment_preferences: List[str] = Field(default_factory=list)
@@ -364,6 +365,7 @@ class ProfileAgent:
             industries=analysis.industries,
             job_titles=analysis.primary_titles + analysis.secondary_titles,
             preferred_job_titles=analysis.primary_titles,
+            title_keywords=analysis.title_keywords,
             preferred_locations=[],
             remote_preferences=analysis.remote_preferences if isinstance(analysis.remote_preferences, list) else [],
             additional_experience=additional_entries,

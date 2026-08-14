@@ -95,6 +95,7 @@ class CandidateProfile(Base):
     industries: Mapped[List[str]] = mapped_column(JSON, default=list)
     job_titles: Mapped[List[str]] = mapped_column(JSON, default=list)
     preferred_job_titles: Mapped[List[str]] = mapped_column(JSON, default=list)
+    title_keywords: Mapped[List[str]] = mapped_column(JSON, default=list)
     preferred_locations: Mapped[List[str]] = mapped_column(JSON, default=list)
     remote_preferences: Mapped[List[str]] = mapped_column(JSON, default=list)
     employment_preferences: Mapped[List[str]] = mapped_column(JSON, default=list)

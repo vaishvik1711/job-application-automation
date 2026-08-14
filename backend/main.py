@@ -180,6 +180,7 @@ async def _save_profile_to_db(profile: CandidateProfile):
             "industries": profile.industries,
             "job_titles": profile.job_titles,
             "preferred_job_titles": profile.preferred_job_titles,
+            "title_keywords": profile.title_keywords,
             "preferred_locations": profile.preferred_locations,
             "remote_preferences": profile.remote_preferences,
             "employment_preferences": profile.employment_preferences,

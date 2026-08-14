@@ -21,13 +21,14 @@ EXTRACT AND CATEGORIZE AS PLAIN STRING LISTS (no proficiency levels or years of 
 2. MODERATE SKILLS - Skills mentioned but with less evidence
 3. SUPPORTING SKILLS - Skills mentioned briefly or in passing
 4. TOOLS - Software, platforms, languages explicitly used
-5. INDUSTRIES - Industries from work history
-6. PRIMARY TITLES - Job titles that directly match experience
-7. SECONDARY TITLES - Related/adjacent titles the candidate could qualify for
-8. SEARCH KEYWORDS - Keywords for job search queries
-9. NEGATIVE KEYWORDS - Terms that indicate unsuitable jobs (e.g., "CPA required", "security clearance")
-10. EXPERIENCE RANGE - Min/max years of experience
-11. REMOTE PREFERENCES - Based on stated preferences
+5. TITLE KEYWORDS - 5-10 single words that must appear in relevant job titles. Extract these from the candidate's resume by analyzing their job history, skills, and experience. Examples: consultant, analyst, engineer, developer, BI, data, business, finance, product, manager, architect, operations, sales, marketing. These are used to FILTER OUT irrelevant jobs (like carpenter, farmer, cook). Pick words that best match the candidate's career.
+6. INDUSTRIES - Industries from work history
+7. PRIMARY TITLES - Job titles that directly match experience
+8. SECONDARY TITLES - Related/adjacent titles the candidate could qualify for
+9. SEARCH KEYWORDS - Keywords for job search queries
+10. NEGATIVE KEYWORDS - Terms that indicate unsuitable jobs (e.g., "CPA required", "security clearance")
+11. EXPERIENCE RANGE - Min/max years of experience
+12. REMOTE PREFERENCES - Based on stated preferences
 
 CRITICAL RULES:
 - ONLY use EXPLICITLY VERIFIED information from the provided sources
@@ -42,6 +43,7 @@ RETURN EXACTLY THIS JSON STRUCTURE:
   "moderate_skills": ["JavaScript", "TypeScript"],
   "supporting_skills": ["Django"],
   "tools": ["Docker", "Kubernetes", "AWS"],
+  "title_keywords": ["engineer", "developer", "software", "data", "analyst", "architect"],
   "industries": ["Software Development", "FinTech"],
   "primary_titles": ["Senior Software Engineer"],
   "secondary_titles": ["Software Engineer", "Full Stack Developer"],

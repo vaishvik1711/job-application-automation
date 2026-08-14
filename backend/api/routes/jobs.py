@@ -240,6 +240,34 @@ async def search_jobs(
             db_result = await session.execute(stmt)
             jobs = db_result.scalars().all()
 
+        # --- Phase 1.5: Filter jobs by title keywords from profile ---
+        # Title keywords are AI-generated during resume analysis and stored on the profile.
+        # They filter out obviously irrelevant jobs (carpenter, farmer, cook) early.
+        db_profile = await (RepositoryFactory(session).candidates.get_profile())
+        title_keywords = list(getattr(db_profile, 'title_keywords', []) or [])
+        # Fallback: derive keywords from preferred job titles if no AI keywords set
+        if not title_keywords and db_profile and db_profile.preferred_job_titles:
+            seen = set()
+            for t in db_profile.preferred_job_titles:
+                for word in t.lower().split():
+                    cleaned = word.strip(",.()[]{}").rstrip("s")
+                    if cleaned and len(cleaned) > 2 and cleaned not in seen:
+                        seen.add(cleaned)
+                        title_keywords.append(cleaned)
+        if title_keywords:
+            filtered = []
+            for j in jobs:
+                title_lower = (j.title or "").lower()
+                if any(kw.lower() in title_lower for kw in title_keywords):
+                    filtered.append(j)
+            logger.info(f"Title keyword filter: {len(jobs)} → {len(filtered)} jobs (keywords: {title_keywords})")
+            if filtered:
+                jobs = filtered
+            else:
+                logger.warning("Title keyword filter removed ALL jobs — showing unfiltered results")
+        else:
+            logger.info("No title keywords available — skipping title filter")
+
         # --- Phase 2: Auto-match against profile ---
         job_ids = [j.id for j in jobs if j.id]
         matching_result_text = ""
