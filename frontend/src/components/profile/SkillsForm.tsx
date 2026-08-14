@@ -12,8 +12,6 @@ import { useProfileStore } from '@/store/index'
 const skillSchema = z.object({
   name: z.string().min(1, 'Skill name is required'),
   category: z.string().min(1, 'Category is required'),
-  proficiency: z.number().min(1).max(5),
-  years_experience: z.number().min(0).max(50).optional(),
 })
 
 const skillsFormSchema = z.object({
@@ -35,14 +33,6 @@ const SKILL_CATEGORIES = [
   'Other',
 ]
 
-const PROFICIENCY_LABELS = {
-  1: 'Beginner',
-  2: 'Novice',
-  3: 'Intermediate',
-  4: 'Advanced',
-  5: 'Expert',
-}
-
 interface SkillsFormProps {
   initialData?: Skill[]
   onSave: (data: Skill[]) => Promise<void>
@@ -60,7 +50,7 @@ export function SkillsForm({ initialData, onSave, isLoading }: SkillsFormProps) 
         : profile?.skills?.length
           ? profile.skills
           : [
-              { name: '', category: 'Programming Languages', proficiency: 3, years_experience: 0 },
+              { name: '', category: 'Programming Languages' },
             ],
     },
   })
@@ -75,7 +65,7 @@ export function SkillsForm({ initialData, onSave, isLoading }: SkillsFormProps) 
   }
 
   const addSkill = () => {
-    append({ name: '', category: 'Programming Languages', proficiency: 3, years_experience: 0 })
+    append({ name: '', category: 'Programming Languages', proficiency: 3 })
   }
 
   return (
@@ -161,25 +151,11 @@ export function SkillsForm({ initialData, onSave, isLoading }: SkillsFormProps) 
                     </select>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-48">
-                    <label htmlFor={`skills.${index}.years_experience`} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                      Years Experience
-                    </label>
-                    <Input
-                      id={`skills.${index}.years_experience`}
-                      type="number"
-                      min="0"
-                      max="50"
-                      {...form.register(`skills.${index}.years_experience`, { valueAsNumber: true })}
-                      placeholder="0"
-                      className="w-full"
-                    />
-                  </div>
+                <div className="flex items-end gap-4">
                   <button
                     type="button"
                     onClick={() => remove(index)}
-                    className="text-red-500 hover:text-red-700 p-1 mt-8"
+                    className="text-red-500 hover:text-red-700 p-1"
                     disabled={fields.length === 1}
                   >
                     <Trash2 className="w-5 h-5" />
