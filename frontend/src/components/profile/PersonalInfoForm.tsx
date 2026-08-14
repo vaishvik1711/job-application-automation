@@ -18,7 +18,7 @@ const personalInfoSchema = z.object({
   linkedin: z.string().url('Invalid URL').optional().or(z.literal('')),
   github: z.string().url('Invalid URL').optional().or(z.literal('')),
   twitter: z.string().url('Invalid URL').optional().or(z.literal('')),
-  summary: z.string().max(500, 'Summary must be less than 500 characters').optional(),
+  summary: z.string().max(600, 'Summary must be less than 600 characters').optional(),
 })
 
 type PersonalInfoFormData = z.infer<typeof personalInfoSchema>
@@ -153,13 +153,13 @@ export function PersonalInfoForm({ initialData, onSave, isLoading }: PersonalInf
               className={cn(
                 'w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-800',
                 'text-slate-900 dark:text-white placeholder-slate-400',
-                'focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent',
+                'focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent',
                 'disabled:opacity-50 disabled:cursor-not-allowed'
               )}
               placeholder="Brief overview of your experience, skills, and career goals..."
             />
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 text-right">
-              {form.watch('summary')?.length || 0}/500 characters
+            <p className="text-xs text-slate-400 dark:text-slate-600 mt-1 text-right">
+              {form.watch('summary')?.length || 0}/600 characters
             </p>
             {form.formState.errors.summary && (
               <p className="text-sm text-red-600 dark:text-red-400 mt-1">{form.formState.errors.summary.message}</p>
