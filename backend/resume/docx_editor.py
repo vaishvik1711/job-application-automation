@@ -181,9 +181,6 @@ class DocxEditor:
         if para.style and "heading" in para.style.name.lower():
             return True
 
-        if para.runs and all(run.bold for run in para.runs if run.text.strip()):
-            return True
-
         return False
 
     def _get_header_level(self, para: Paragraph) -> int:
@@ -218,6 +215,12 @@ class DocxEditor:
         for section in self.sections:
             if any(kw in section.name.lower() for kw in ["summary", "profile", "objective", "about"]):
                 if section.paragraph_indices:
+                    # Skip section header paragraph — use the content paragraph
+                    for idx in section.paragraph_indices:
+                        para = self.doc.paragraphs[idx]
+                        if not self._is_section_header(para.text.strip(), para):
+                            return self._replace_paragraph_text(para, new_summary)
+                    # Fallback to first paragraph if all are headers
                     para = self.doc.paragraphs[section.paragraph_indices[0]]
                     return self._replace_paragraph_text(para, new_summary)
         return False
@@ -334,6 +337,19 @@ class DocxEditor:
         if not hasattr(section, 'paragraph_indices'):
             return []
 
+        # For Experience / Work sections, ALL non-header, non-title paragraphs
+        # are "bullets" — this resume format uses plain block paragraphs
+        # without bullet characters or indentation.
+        exp_keywords = ["experience", "work", "employment", "professional"]
+        is_exp_section = any(kw in section.name.lower() for kw in exp_keywords)
+
+        if is_exp_section:
+            return [
+                idx for idx in section.paragraph_indices
+                if not self._is_section_header(self.doc.paragraphs[idx].text.strip(), self.doc.paragraphs[idx])
+                and not self._is_job_title(self.doc.paragraphs[idx])
+            ]
+
         bullet_indices = []
         for idx in section.paragraph_indices:
             para = self.doc.paragraphs[idx]
@@ -357,6 +373,33 @@ class DocxEditor:
 
         # Check paragraph format for left indent (common in bullets)
         if para.paragraph_format.left_indent and para.paragraph_format.left_indent > Pt(12):
+            return True
+
+        return False
+
+    def _is_job_title(self, para: Paragraph) -> bool:
+        """Check if paragraph is a job title line (not a bullet)."""
+        text = para.text.strip()
+        if not text:
+            return True  # skip empty paragraphs
+
+        # Job title lines typically have a company name reference
+        company_patterns = [
+            r'\([A-Z][A-Za-z0-9\s.&]+\)',   # matches (Company Name)
+            r'–\s+[A-Z][A-Za-z0-9\s.&]+',    # matches – Company Name
+        ]
+        has_company_ref = any(re.search(p, text) for p in company_patterns)
+
+        # Job titles often end with a date range e.g. "Oct 2022 – June 2023" or "2022 - Present"
+        # Match any month name prefix + year + dash + year/Present
+        has_date_range = bool(re.search(
+            r'(?:[A-Z][a-z]{2,8}\s+)?(?:19|20)\d{2}\s*[–-]\s*'
+            r'(?:Present|Current|(?:[A-Z][a-z]{2,8}\s+)?(?:19|20)\d{2})',
+            text
+        ))
+
+        # Paragraph with a company reference AND date info → definitely a job title
+        if has_company_ref and has_date_range:
             return True
 
         return False
@@ -495,9 +538,11 @@ def customize_resume_from_plan(
 
     # Apply bullet changes
     for change in customization_plan.get("bullet_changes", []):
-        section = change.get("section", "")
+        section = change.get("section", "Experience")
         index = change.get("index", 0)
         new_text = change.get("new_text", "")
+        if not new_text:
+            continue
         if section and new_text:
             editor.replace_bullet(section, index, new_text)
 

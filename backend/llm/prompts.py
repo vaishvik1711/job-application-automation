@@ -164,13 +164,17 @@ JOB MATCH ANALYSIS:
 INSTRUCTIONS:
 - Modify ONLY information supported by master resume or additional experience
 - PRESERVE the master resume's format, structure, fonts, margins, spacing
-- Improve relevance through: rewording bullets, reordering bullets, emphasizing relevant skills, adjusting summary
-- Use job description terminology WHEN TRUTHFUL
+- REWORD EVERY BULLET in the Experience section to use job-specific terminology where truthful. Even if the resume is a good match, always reword each bullet to better align with the job description.
+- Improve relevance through: rewording bullets to use job description language, reordering bullets (most relevant first), emphasizing skills the job asks for, adjusting summary to highlight job-relevant experience
+- Use job description terminology WHEN TRUTHFUL — e.g. if the job says "stakeholder collaboration" and your resume says "worked with teams", change to "collaborated with stakeholders"
 - NEVER add unsupported claims, fake experience, or invented skills
-- Target 80-90% relevance score based on TRUTHFUL alignment
-- Each change must be traceable to a source
+- NEVER fabricate technologies, tools, or certifications not in the resume
+- YOU MUST produce at least 1-2 bullet_changes per experience entry. If a bullet is already perfect, still reword it slightly to incorporate job-specific phrasing.
+- If the summary can be improved to highlight job-relevant skills, provide a summary_rewrite
+- Each bullet_change must use the format: section="Experience", index=N (0-based), new_text="rewritten text"
+- The experience section has multiple job entries. Job entry 0 starts at bullet index 0, job entry 1 starts after the previous entry's bullets.
 
-Return JSON matching the ResumeCustomizationPlan schema.
+Return JSON matching the ResumeCustomizationPlan schema exactly. Each bullet_change requires section, index, and new_text fields.
 """
 
 RESUME_VALIDATION_PROMPT = f"""

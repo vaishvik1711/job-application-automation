@@ -61,9 +61,15 @@ class JobMatchResult(BaseModel):
         return max(0, min(100, v))
 
 
+class BulletChange(BaseModel):
+    section: str = Field(description="Section name, e.g. 'Experience', 'Projects'")
+    index: int = Field(description="0-based index of the bullet within that section")
+    new_text: str = Field(description="Rewritten bullet text that better targets the job")
+
+
 class ResumeCustomizationPlan(BaseModel):
     summary_rewrite: Optional[str] = None
-    bullet_changes: List[dict] = Field(default_factory=list)
+    bullet_changes: List[BulletChange] = Field(default_factory=list)
     skills_to_emphasize: List[str] = Field(default_factory=list)
     skills_to_deemphasize: List[str] = Field(default_factory=list)
     keywords_to_add: List[str] = Field(default_factory=list)

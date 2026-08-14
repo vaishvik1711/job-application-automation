@@ -274,12 +274,23 @@ class ResumeAgent:
 
         # Bullet changes traceability
         for change in plan.bullet_changes:
+            # change can be a BulletChange (Pydantic) or dict
+            if hasattr(change, 'new_text'):
+                new_text = change.new_text
+                section = getattr(change, 'section', '')
+                idx = getattr(change, 'index', 0)
+                src = getattr(change, 'source', 'master_resume.work_history')
+            else:
+                new_text = change.get("new_text", "")
+                section = change.get("section", "")
+                idx = change.get("index", 0)
+                src = change.get("source", "master_resume.work_history")
             traceability.append({
-                "generated_content": change.get("new_text", ""),
+                "generated_content": new_text,
                 "type": "bullet",
-                "section": change.get("section", ""),
-                "index": change.get("index", 0),
-                "sources": [change.get("source", "master_resume.work_history")],
+                "section": section,
+                "index": idx,
+                "sources": [src],
             })
 
         # Skills emphasis traceability
