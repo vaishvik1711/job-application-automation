@@ -16,6 +16,92 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _derive_title_keywords(profile) -> list[str]:
+    """
+    Derive job title keywords from a candidate profile.
+
+    Sources (in priority order):
+      1. AI-generated title_keywords (from LLM resume analysis)
+      2. preferred_job_titles (split into individual words)
+      3. Employment history job titles (split into individual words)
+      4. job_titles (split into individual words)
+
+    Extracted words are lowercased, stripped of punctuation, and filtered
+    to remove short/common words that would produce too many false positives.
+    """
+    seen: set[str] = set()
+
+    def _extract(text: str) -> None:
+        for word in text.lower().split():
+            cleaned = word.strip(",.()[]{}'\"-–—").rstrip("s")
+            if cleaned and len(cleaned) > 2 and cleaned not in seen:
+                seen.add(cleaned)
+
+    if not profile:
+        return []
+
+    # Source 1: AI-generated keywords
+    for kw in (getattr(profile, 'title_keywords', None) or []):
+        if kw and isinstance(kw, str):
+            seen.add(kw.lower().strip())
+
+    # Source 2: preferred_job_titles
+    for t in (getattr(profile, 'preferred_job_titles', None) or []):
+        _extract(t)
+
+    # Source 3: employment_history job titles
+    for entry in (getattr(profile, 'employment_history', None) or []):
+        title = ""
+        if isinstance(entry, dict):
+            title = entry.get("title", "") or entry.get("position", "") or ""
+        elif isinstance(entry, str):
+            title = entry
+        _extract(title)
+
+    # Source 4: job_titles
+    for t in (getattr(profile, 'job_titles', None) or []):
+        if isinstance(t, str):
+            _extract(t)
+
+    # Remove overly generic words that would let irrelevant jobs through
+    generic = {"senior", "lead", "junior", "staff", "principal", "entry",
+               "level", "associate", "coordinator", "specialist", "generalist",
+               "technician", "representative", "administrative", "support",
+               "assistant", "agent", "officer", "clerk", "helper", "worker",
+               "laborer", "operator", "driver", "intern", "trainee",
+               "manager", "supervisor", "director", "head", "chief",
+               "freelance", "contract", "temporary", "seasonal"}
+    known_good = {"software", "engineer", "developer", "data", "analyst",
+                  "scientist", "architect", "devops", "backend", "frontend",
+                  "full", "stack", "web", "mobile", "cloud", "security",
+                  "ml", "ai", "machine", "learning", "deep", "infrastructure",
+                  "platform", "product", "design", "ux", "ui", "research",
+                  "qualitative", "quantitative", "bi", "business", "intelligence",
+                  "financial", "finance", "consultant", "consulting",
+                  "operations", "strategy", "marketing", "sales", "growth",
+                  "account", "project", "program", "scrum", "agile",
+                  "test", "qa", "automation", "reliability", "site",
+                  "network", "systems", "database", "sql", "nosql",
+                  "api", "integration", "implementation", "technical",
+                  "solutions", "customer", "success", "delivery",
+                  "supply", "chain", "logistics", "procurement",
+                  "compliance", "audit", "risk", "legal", "hr",
+                  "recruiter", "talent", "people", "culture",
+                  "content", "creative", "writing", "editorial",
+                  "medical", "clinical", "research", "lab",
+                  "mechanical", "electrical", "civil", "chemical",
+                  "environmental", "industrial", "manufacturing",
+                  "education", "training", "teaching", "instructor",
+                  "firm", "corporate", "startup", "agency"}
+
+    # Filter: keep only words that are specific enough to be useful
+    # (not in the generic list), OR are in the known_good list
+    result = [w for w in seen
+              if w in known_good or w not in generic]
+
+    return result
+
+
 def _job_to_schema(job: Job) -> dict:
     """Convert Job SQLAlchemy model to dict for frontend."""
     return {
@@ -104,14 +190,25 @@ async def list_jobs(
         )
     total = await session.scalar(count_query)
 
+    # Apply title keyword filter (same logic as search) unless a text search is active
+    if not search:
+        db_profile = await repos.candidates.get_profile()
+        title_keywords = _derive_title_keywords(db_profile)
+        if title_keywords:
+            jobs = [j for j in jobs if any(
+                kw.lower() in (j.title or "").lower() for kw in title_keywords
+            )]
+            logger.info(f"GET /jobs title filter: → {len(jobs)} jobs (keywords: {title_keywords})")
+
     items = [_job_to_schema(j) for j in jobs]
+    filtered_total = len(items)
 
     return ApiResponse(data={
         "items": items,
-        "total": total,
+        "total": filtered_total,
         "page": page,
         "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size if total else 0,
+        "total_pages": (filtered_total + page_size - 1) // page_size if filtered_total else 0,
     })
 
 
@@ -241,19 +338,11 @@ async def search_jobs(
             jobs = db_result.scalars().all()
 
         # --- Phase 1.5: Filter jobs by title keywords from profile ---
-        # Title keywords are AI-generated during resume analysis and stored on the profile.
-        # They filter out obviously irrelevant jobs (carpenter, farmer, cook) early.
+        # Title keywords filter out obviously irrelevant jobs (carpenter, farmer, cook)
+        # by requiring that the job title contains at least one keyword derived from
+        # the candidate's actual work history.
         db_profile = await (RepositoryFactory(session).candidates.get_profile())
-        title_keywords = list(getattr(db_profile, 'title_keywords', []) or [])
-        # Fallback: derive keywords from preferred job titles if no AI keywords set
-        if not title_keywords and db_profile and db_profile.preferred_job_titles:
-            seen = set()
-            for t in db_profile.preferred_job_titles:
-                for word in t.lower().split():
-                    cleaned = word.strip(",.()[]{}").rstrip("s")
-                    if cleaned and len(cleaned) > 2 and cleaned not in seen:
-                        seen.add(cleaned)
-                        title_keywords.append(cleaned)
+        title_keywords = _derive_title_keywords(db_profile)
         if title_keywords:
             filtered = []
             for j in jobs:
