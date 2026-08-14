@@ -1,16 +1,15 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { MatchDetail, MatchWeights } from '@/types'
-import { useMatches, useAnalyzeJob, useJobs } from '@/hooks/useApi'
-import { useMatchingStore, useJobSearchStore } from '@/store'
+import { MatchDetail } from '@/types'
+import { useMatches } from '@/hooks/useApi'
+import { useMatchingStore } from '@/store'
 import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { Progress } from '@/components/ui/Progress'
 import { MatchCard } from '@/components/job-matching/MatchCard'
-import { MatchWeightsConfig } from '@/components/job-matching/MatchWeightsConfig'
-import { Target, Search, BarChart3, CheckCircle, Clock, LayoutGrid, List, Download } from 'lucide-react'
+import { Target, Search, BarChart3, Sliders, LayoutGrid, List, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import { jobsApi } from '@/services/api'
 
 type ViewMode = 'grid' | 'list'
 
@@ -18,93 +17,60 @@ export function JobMatching() {
   const navigate = useNavigate()
   const location = useLocation()
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
-  const [selectedJobsForAnalysis, setSelectedJobsForAnalysis] = useState<string[]>([])
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState<{ current: number; total: number; message: string } | null>(null)
+  const [threshold, setThreshold] = useState(50)
 
-  const { data: matchesData, isLoading, refetch } = useMatches({ page: 1, page_size: 50 })
-  const { data: storedJobs } = useJobs()
-
-  const analyzeJobMutation = useAnalyzeJob()
-
+  const { data: matchesData, isLoading, refetch } = useMatches({ page: 1, page_size: 100 })
   const { selectedMatches, toggleMatchSelection } = useMatchingStore()
-  const { weights, threshold } = useMatchingStore()
-  const { searchResults: searchedJobs } = useJobSearchStore()
 
   // Get selected jobs from location state (passed from JobSearch page)
   const locationState = location.state as { selectedJobs?: string[] } | null
   const selectedJobIds = locationState?.selectedJobs || []
 
-  // Use searched jobs if available, otherwise use jobs from matches
-  const availableJobs = searchedJobs.length > 0 ? searchedJobs : (storedJobs?.items || [])
-  const jobsToAnalyze =
-    selectedJobIds.length > 0 && availableJobs.length > 0
-      ? availableJobs.filter((j) => selectedJobIds.includes(j.id))
-      : selectedJobIds.length > 0 && availableJobs.length === 0
-      ? searchedJobs
-      : []
-
-  // Get existing matches
-  const existingMatches = matchesData?.items || []
-
-  // Combined match data - use existing matches plus any jobs we just found
-  const displayMatches: MatchDetail[] = [...existingMatches]
-
+  // Auto-analyze when jobs are passed in
   useEffect(() => {
-    if (selectedJobIds.length > 0) {
-      setSelectedJobsForAnalysis(selectedJobIds)
+    if (selectedJobIds.length > 0 && !isAnalyzing) {
+      // Check if we already have match data
+      const currentMatches = matchesData?.items || []
+      const alreadyMatchedIds = new Set(currentMatches.map((m) => m.job_id))
+      const needsAnalysis = selectedJobIds.filter((id) => !alreadyMatchedIds.has(id))
+
+      if (needsAnalysis.length > 0 && currentMatches.length < selectedJobIds.length) {
+        handleBatchAnalyze(needsAnalysis)
+      }
     }
   }, [selectedJobIds])
 
-  const handleAnalyzeSelected = useCallback(async () => {
-    if (selectedJobsForAnalysis.length === 0) {
-      toast.warning('Please select at least one job to analyze')
-      return
-    }
+  const handleBatchAnalyze = useCallback(async (jobIds?: string[]) => {
+    const ids = jobIds || selectedJobIds
+    if (ids.length === 0) return
 
-    setAnalysisProgress({ current: 0, total: selectedJobsForAnalysis.length, message: 'Starting analysis...' })
+    setIsAnalyzing(true)
+    setAnalysisProgress({ current: 0, total: ids.length, message: 'Analyzing jobs...' })
 
     try {
-      const matchWeights: MatchWeights = weights
-      let completed = 0
-
-      for (const jobId of selectedJobsForAnalysis) {
-        try {
-          setAnalysisProgress({
-            current: completed + 1,
-            total: selectedJobsForAnalysis.length,
-            message: `Analyzing "${availableJobs.find((j) => j.id === jobId)?.title || jobId}"...`,
-          })
-
-          await analyzeJobMutation.mutateAsync({ id: jobId, weights: matchWeights })
-          completed++
-        } catch (err: any) {
-          console.error(`Failed to analyze job ${jobId}:`, err)
-          completed++
-        }
-      }
-
-      setAnalysisProgress({
-        current: selectedJobsForAnalysis.length,
-        total: selectedJobsForAnalysis.length,
-        message: 'Analysis complete!',
-      })
-
-      toast.success(`Analyzed ${completed} jobs`)
-      setTimeout(() => setAnalysisProgress(null), 1500)
+      await jobsApi.batchAnalyze(ids)
+      setAnalysisProgress({ current: ids.length, total: ids.length, message: 'Analysis complete!' })
+      toast.success(`Analyzed ${ids.length} jobs`)
+      setTimeout(() => setAnalysisProgress(null), 1000)
       refetch()
     } catch (err: any) {
       console.error('Batch analysis failed:', err)
-      toast.error('Failed to analyze jobs')
-      setAnalysisProgress(null)
+      toast.error('Analysis failed — try refreshing')
+    } finally {
+      setIsAnalyzing(false)
     }
-  }, [selectedJobsForAnalysis, weights, availableJobs, analyzeJobMutation, refetch])
+  }, [selectedJobIds, refetch])
+
+  // Filter matches by technical_score >= threshold
+  const existingMatches: MatchDetail[] = matchesData?.items || []
+  const filteredMatches = useMemo(() => {
+    return existingMatches.filter((m) => (m.score?.skills || 0) >= threshold)
+  }, [existingMatches, threshold])
 
   const handleGenerateResume = (match: MatchDetail) => {
     navigate(`/resume-builder?job_id=${match.job_id}`)
-  }
-
-  const handleExport = () => {
-    toast.info('Export feature coming soon')
   }
 
   return (
@@ -114,7 +80,7 @@ export function JobMatching() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Job Matching</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Analyze jobs against your profile and view match scores
+            Jobs matching your skills — filtered by technical score
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -142,8 +108,8 @@ export function JobMatching() {
               <List className="w-4 h-4" />
             </button>
           </div>
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="w-4 h-4 mr-2" /> Export Results
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <Search className="w-4 h-4 mr-1" /> Refresh
           </Button>
         </div>
       </div>
@@ -163,132 +129,141 @@ export function JobMatching() {
         </Card>
       )}
 
-      {/* Two-column layout: Weights Config + Matches */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-        {/* Weights Configuration */}
-        <div className="xl:col-span-1">
-          <MatchWeightsConfig />
-        </div>
-
-        {/* Match Results */}
-        <div className="xl:col-span-3 space-y-4">
-          {/* Analyze Button for selected jobs */}
-          {jobsToAnalyze.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Jobs Ready for Analysis</CardTitle>
-                <CardDescription>{jobsToAnalyze.length} jobs selected from search results</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {jobsToAnalyze.slice(0, 3).map((job) => (
-                      <Badge key={job.id} variant="neutral" className="text-xs">
-                        {job.title}
-                      </Badge>
-                    ))}
-                    {jobsToAnalyze.length > 3 && (
-                      <Badge variant="neutral" className="text-xs">
-                        +{jobsToAnalyze.length - 3} more
-                      </Badge>
-                    )}
-                  </div>
-                  <Button onClick={handleAnalyzeSelected} loading={analyzeJobMutation.isPending} size="sm">
-                    <Target className="w-4 h-4 mr-2" /> Analyze with Current Weights
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Stats Summary */}
-          {displayMatches.length > 0 && (
-            <Card>
-              <CardContent className="py-3">
-                <div className="flex items-center gap-6 text-sm">
-                  <div className="flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                    <span className="text-slate-600 dark:text-slate-400">Total Matches:</span>
-                    <strong className="text-slate-900 dark:text-white">{displayMatches.length}</strong>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                    <span className="text-slate-600 dark:text-slate-400">Qualified:</span>
-                    <strong className="text-slate-900 dark:text-white">
-                      {displayMatches.filter((m) => m.score.verdict === 'QUALIFIED').length}
-                    </strong>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-orange-500" />
-                    <span className="text-slate-600 dark:text-slate-400">Threshold:</span>
-                    <strong className="text-slate-900 dark:text-white">{threshold}%</strong>
-                  </div>
-                  <div className="flex-1" />
-                  {displayMatches.length > 0 && (
-                    <Button variant="outline" size="sm" onClick={() => refetch()}>
-                      <Search className="w-4 h-4 mr-1" /> Refresh
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Match Results Grid/List */}
-          {displayMatches.length > 0 ? (
-            <div
-              className={
-                viewMode === 'grid'
-                  ? 'grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4'
-                  : 'space-y-3'
-              }
-            >
-              {displayMatches.map((match) => (
-                <MatchCard
-                  key={match.job_id}
-                  match={match}
-                  isSelected={selectedMatches.has(match.job_id)}
-                  onSelect={() => toggleMatchSelection(match.job_id)}
-                  onGenerateResume={() => handleGenerateResume(match)}
-                  compact={viewMode === 'list'}
+      {/* Simple single-column layout */}
+      <div className="space-y-4">
+        {/* Skill Match Threshold Slider */}
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex items-center gap-2 min-w-fit">
+                <Sliders className="w-4 h-4 text-slate-500" />
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Skill Match Threshold
+                </span>
+              </div>
+              <div className="flex items-center gap-3 flex-1">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={threshold}
+                  onChange={(e) => setThreshold(Number(e.target.value))}
+                  className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-primary-600"
                 />
-              ))}
+                <span className="text-sm font-semibold text-primary-600 dark:text-primary-400 min-w-[3rem] text-right">
+                  {threshold}%
+                </span>
+              </div>
+              <div className="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400 min-w-fit">
+                <span>Matched: <strong className="text-slate-900 dark:text-white">{existingMatches.length}</strong></span>
+                <span>Filtered: <strong className="text-slate-900 dark:text-white">{filteredMatches.length}</strong></span>
+              </div>
             </div>
-          ) : (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Target className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">No matches found</h3>
-                <p className="text-slate-500 dark:text-slate-400 mb-4">
-                  {jobsToAnalyze.length > 0
-                    ? 'Click "Analyze with Current Weights" above to start matching your jobs against your profile.'
-                    : 'Go to Job Search to find jobs and then analyze them against your profile.'}
-                </p>
-                <Button variant="outline" onClick={() => navigate('/job-search')}>
-                  <Search className="w-4 h-4 mr-2" /> Go to Job Search
-                </Button>
-              </CardContent>
-            </Card>
-          )}
+          </CardContent>
+        </Card>
 
-          {/* Loading */}
-          {isLoading && (
-            <div className="space-y-4">
-              {[...Array(viewMode === 'grid' ? 6 : 4)].map((_, i) => (
-                <Card key={i}>
-                  <CardHeader>
-                    <div className="h-5 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-3/4" />
-                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-1/2 mt-2" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse mb-2" />
-                    <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-5/6" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Stats Summary */}
+        {filteredMatches.length > 0 && (
+          <Card>
+            <CardContent className="py-3">
+              <div className="flex items-center gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                  <span className="text-slate-600 dark:text-slate-400">Showing:</span>
+                  <strong className="text-slate-900 dark:text-white">{filteredMatches.length} jobs</strong>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <span className="text-slate-600 dark:text-slate-400">Above {threshold}% skill match</span>
+                </div>
+                <div className="flex-1" />
+                {existingMatches.length > filteredMatches.length && (
+                  <span className="text-xs text-slate-400">
+                    ({existingMatches.length - filteredMatches.length} below threshold hidden)
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* No matches yet — auto-analyzing */}
+        {existingMatches.length === 0 && !isAnalyzing && selectedJobIds.length > 0 && (
+          <Card>
+            <CardContent className="py-8 text-center">
+              <Target className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">Analyzing jobs...</h3>
+              <p className="text-slate-500 dark:text-slate-400">
+                Matching {selectedJobIds.length} jobs against your skills. This may take a moment.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Match Results Grid/List */}
+        {filteredMatches.length > 0 ? (
+          <div
+            className={
+              viewMode === 'grid'
+                ? 'grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4'
+                : 'space-y-3'
+            }
+          >
+            {filteredMatches.map((match) => (
+              <MatchCard
+                key={match.job_id}
+                match={match}
+                isSelected={selectedMatches.has(match.job_id)}
+                onSelect={() => toggleMatchSelection(match.job_id)}
+                onGenerateResume={() => handleGenerateResume(match)}
+                compact={viewMode === 'list'}
+              />
+            ))}
+          </div>
+        ) : existingMatches.length > 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Target className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">No jobs match your threshold</h3>
+              <p className="text-slate-500 dark:text-slate-400 mb-4">
+                {existingMatches.length} jobs matched, but none have a skill score of {threshold}% or higher.
+                Try lowering the threshold slider above.
+              </p>
+            </CardContent>
+          </Card>
+        ) : !isLoading && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Target className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">No matches found</h3>
+              <p className="text-slate-500 dark:text-slate-400 mb-4">
+                Go to Job Search to find jobs and analyze them against your profile.
+              </p>
+              <Button variant="outline" onClick={() => navigate('/job-search')}>
+                <Search className="w-4 h-4 mr-2" /> Go to Job Search
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Loading */}
+        {isLoading && (
+          <div className="space-y-4">
+            {[...Array(viewMode === 'grid' ? 6 : 4)].map((_, i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <div className="h-5 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-3/4" />
+                  <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-1/2 mt-2" />
+                </CardHeader>
+                <CardContent>
+                  <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse mb-2" />
+                  <div className="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse w-5/6" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

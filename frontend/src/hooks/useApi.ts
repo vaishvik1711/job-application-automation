@@ -67,7 +67,7 @@ export function useUpdateProfile() {
 export function useJobs(params?: { page?: number; page_size?: number; status?: string; search?: string }) {
   return useQuery({
     queryKey: queryKeys.jobs(params),
-    queryFn: () => jobsApi.list(params).then((res) => res.data),
+    queryFn: () => jobsApi.list(params).then((res) => res.data.data),
   })
 }
 
@@ -127,7 +127,7 @@ export function useExportJobs() {
 export function useMatches(params?: { page?: number; page_size?: number; verdict?: string; min_score?: number }) {
   return useQuery({
     queryKey: queryKeys.matches(params),
-    queryFn: () => jobsApi.getMatches(params).then((res) => res.data),
+    queryFn: () => jobsApi.getMatches(params).then((res) => res.data.data),
   })
 }
 

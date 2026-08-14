@@ -139,7 +139,7 @@ export const jobsApi = {
     search?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
-  }) => api.get<PaginatedResponse<Job>>('/jobs', { params }),
+  }) => api.get<ApiResponse<PaginatedResponse<Job>>>('/jobs', { params }),
 
   get: (id: string) => api.get<ApiResponse<Job>>(`/jobs/${id}`),
 
@@ -158,7 +158,7 @@ export const jobsApi = {
     verdict?: string
     min_score?: number
     max_score?: number
-  }) => api.get<PaginatedResponse<MatchDetail>>('/jobs/matches', { params }),
+  }) => api.get<ApiResponse<PaginatedResponse<MatchDetail>>>('/jobs/matches', { params }),
 
   export: (jobIds?: string[], format: 'csv' | 'excel' = 'csv') =>
     api.get<Blob>('/jobs/export', {

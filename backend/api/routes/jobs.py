@@ -212,19 +212,6 @@ async def list_jobs(
     })
 
 
-@router.get("/jobs/{job_id}", response_model=ApiResponse)
-async def get_job(
-    job_id: str,
-    session: AsyncSession = Depends(get_db_session),
-):
-    """Get a single job by ID."""
-    job = await (RepositoryFactory(session).jobs.get_job(int(job_id)))
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    return ApiResponse(data=_job_to_schema(job))
-
-
 @router.post("/jobs/search", response_model=ApiResponse)
 async def search_jobs(
     request: dict,
@@ -422,31 +409,48 @@ async def search_jobs(
 @router.post("/jobs/{job_id}/analyze", response_model=ApiResponse)
 async def analyze_job(
     job_id: str,
-    weights: Optional[dict] = None,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Analyze a job against the candidate profile and return match details."""
+    """Analyze a single job against the candidate profile and save the match."""
     from agents.matching_agent import MatchingAgent
 
     agent = MatchingAgent()
-    match = await agent.match_job(int(job_id), weights or {})
-
-    return ApiResponse(data=match)
+    result = await agent.match_jobs(job_ids=[int(job_id)])
+    if result.jobs_matched:
+        # Load the match from DB
+        match_stmt = select(JobMatch).where(JobMatch.job_id == int(job_id)).limit(1)
+        match_result = await session.execute(match_stmt)
+        match = match_result.scalars().first()
+        if match:
+            return ApiResponse(data={
+                "match_score": match.match_score,
+                "technical_score": match.technical_score,
+                "recommendation": match.recommendation,
+                "reasoning": match.reasoning,
+            })
+    return ApiResponse(data={"match_score": 0, "technical_score": 0, "recommendation": "UNKNOWN"})
 
 
 @router.post("/jobs/batch-analyze", response_model=ApiResponse)
 async def batch_analyze_jobs(
-    job_ids: list,
-    weights: Optional[dict] = None,
+    request: dict,
     session: AsyncSession = Depends(get_db_session),
 ):
     """Analyze multiple jobs at once."""
+    job_ids = request.get("job_ids", [])
+    if not job_ids:
+        return ApiResponse(data={"matched": 0, "failed": 0, "total": 0})
+
     from agents.matching_agent import MatchingAgent
 
     agent = MatchingAgent()
-    matches = await agent.match_jobs(job_ids=[int(id) for id in job_ids], weights=weights or {})
+    result = await agent.match_jobs(job_ids=[int(id) for id in job_ids])
 
-    return ApiResponse(data=[m for m in matches])
+    return ApiResponse(data={
+        "matched": result.jobs_matched,
+        "failed": result.jobs_failed,
+        "total": result.jobs_processed,
+    })
 
 
 @router.get("/jobs/matches", response_model=ApiResponse)
@@ -676,3 +680,16 @@ async def export_jobs(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=export.csv"},
     )
+
+
+@router.get("/jobs/{job_id}", response_model=ApiResponse)
+async def get_job(
+    job_id: str,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get a single job by ID."""
+    job = await (RepositoryFactory(session).jobs.get_job(int(job_id)))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return ApiResponse(data=_job_to_schema(job))
