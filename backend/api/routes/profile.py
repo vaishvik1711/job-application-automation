@@ -6,12 +6,22 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.schemas import ApiResponse
 from api.dependencies import get_db_session, get_supabase_client
-from database.models import CandidateProfile
+from database.models import (
+    CandidateProfile,
+    Resume,
+    Application,
+    ScreeningQuestion,
+    ApplicationEvent,
+    ApplicationError,
+    JobMatch,
+    JobSource,
+    Job,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -281,8 +291,47 @@ async def delete_profile(session: AsyncSession = Depends(get_db_session)):
             detail="Profile not found",
         )
 
+    # Collect all job IDs linked to this profile via applications or resumes
+    app_result = await session.execute(
+        select(Application).where(Application.candidate_id == profile.id)
+    )
+    applications = app_result.scalars().all()
+
+    resume_result = await session.execute(
+        select(Resume).where(Resume.candidate_id == profile.id)
+    )
+    resumes = resume_result.scalars().all()
+
+    job_ids = set()
+    for app in applications:
+        job_ids.add(app.job_id)
+    for r in resumes:
+        job_ids.add(r.job_id)
+
+    # Delete related data in the correct order to avoid FK violations
+
+    # 1. Applications (cascades to screening_questions, application_events, application_errors)
+    for app in applications:
+        await session.delete(app)
+
+    # 2. Resumes
+    for r in resumes:
+        await session.delete(r)
+
+    # 3. Nullify self-referential FK (canonical_job_id → jobs.id) before deleting
+    for jid in job_ids:
+        await session.execute(
+            sa_delete(JobSource).where(JobSource.job_id == jid)
+        )
+        await session.execute(
+            sa_delete(JobMatch).where(JobMatch.job_id == jid)
+        )
+        await session.execute(
+            sa_delete(Job).where(Job.id == jid)
+        )
+
+    # 4. CandidateProfile (cascades to candidate_experience)
     await session.delete(profile)
-    await session.flush()
 
     return ApiResponse(data={"deleted": True})
 

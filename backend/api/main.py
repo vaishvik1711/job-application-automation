@@ -47,6 +47,13 @@ async def lifespan(app: FastAPI):
                     "ADD COLUMN IF NOT EXISTS additional_experience JSON"
                 )
             )
+            # 2026-08-14: added title_keywords to CandidateProfile
+            await conn.execute(
+                text(
+                    "ALTER TABLE candidate_profiles "
+                    "ADD COLUMN IF NOT EXISTS title_keywords JSON"
+                )
+            )
     except Exception as e:
         logger.warning("Database connection failed during startup: %s", e)
         logger.warning("Tables will not be created until the database is reachable.")
