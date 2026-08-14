@@ -21,7 +21,7 @@ import {
 import { toast } from 'sonner'
 
 const LLM_SCHEMA = z.object({
-  provider: z.enum(['openai', 'anthropic', 'local', 'nvidia']),
+  provider: z.enum(['nvidia']),
   model: z.string().min(1, 'Model name is required'),
   api_key: z.string().optional(),
   base_url: z.string().url('Invalid URL').optional().or(z.literal('')),
@@ -37,20 +37,8 @@ interface LLMSettingsFormProps {
   onSave?: () => void
 }
 
-/**
- * Default model — read from the VITE_ANTHROPIC_MODEL env var (set in
- * .claude/settings.json) so the frontend stays in sync with the backend.
- * If the env var is unset, the model field starts empty and must be
- * filled in manually — there is no hardcoded fallback.
- */
-const DEFAULT_MODEL =
-  import.meta.env.VITE_ANTHROPIC_MODEL || ''
-
 const PROVIDER_OPTIONS = [
-  { value: 'openai', label: 'OpenAI', description: 'GPT-4o, GPT-4, etc.' },
-  { value: 'anthropic', label: 'Anthropic', description: 'Claude 3, Claude 3.5 Sonnet' },
-  { value: 'local', label: 'Local', description: 'Local/Ollama models' },
-  { value: 'nvidia', label: 'NVIDIA', description: 'Nemotron models' },
+  { value: 'nvidia', label: 'NVIDIA', description: 'Nemotron (free via OpenRouter)' },
 ]
 
 export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormProps) {
@@ -63,8 +51,8 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
   const form = useForm<LLMFormData>({
     resolver: zodResolver(LLM_SCHEMA),
     defaultValues: settings || {
-      provider: 'anthropic',
-      model: DEFAULT_MODEL,
+      provider: 'nvidia',
+      model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
       api_key: '',
       base_url: '',
       temperature: 0.7,
@@ -77,11 +65,7 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
   // Auto-update model when provider changes
   const handleProviderChange = (newProvider: string) => {
     form.setValue('provider', newProvider as LLMFormData['provider'])
-
-    const providerDefaults: Record<string, string> = {
-      anthropic: DEFAULT_MODEL,
-    }
-    form.setValue('model', providerDefaults[newProvider] || '')
+    form.setValue('model', 'nvidia/nemotron-3-ultra-550b-a55b:free')
   }
 
   const handleTestConnection = async () => {
@@ -141,7 +125,7 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
         {/* Provider Selection */}
         <div className="space-y-3">
           <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Provider</label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {PROVIDER_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
@@ -169,15 +153,12 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
           <Input
             id="model"
             {...form.register('model')}
-            placeholder={provider === 'anthropic' ? DEFAULT_MODEL || 'model-name' : 'model-name'}
+            placeholder="nvidia/nemotron-3-ultra-550b-a55b:free"
             error={form.formState.errors.model?.message}
             onChange={(e) => handleFormChange({ model: e.target.value })}
           />
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-            {provider === 'anthropic' && `Default: ${DEFAULT_MODEL || 'set VITE_ANTHROPIC_MODEL env var'}`}
-            {provider === 'openai' && 'Enter your OpenAI model name (e.g. gpt-4o)'}
-            {provider === 'nvidia' && 'Enter your NVIDIA model name'}
-            {provider === 'local' && 'Enter your local model identifier'}
+            Free model via OpenRouter
           </p>
         </div>
 
@@ -220,7 +201,7 @@ export function LLMSettingsForm({ settings, onChange, onSave }: LLMSettingsFormP
             <Input
               id="base_url"
               {...form.register('base_url')}
-              placeholder="https://api.openai.com/v1"
+              placeholder="https://openrouter.ai/api/v1"
               className="pl-10"
               onChange={(e) => handleFormChange({ base_url: e.target.value })}
             />

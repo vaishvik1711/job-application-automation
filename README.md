@@ -8,7 +8,7 @@ A full-stack AI-powered job application automation system with a React frontend 
 - **Backend**: Python FastAPI with async SQLAlchemy
 - **Database**: Supabase Postgres
 - **File Storage**: Supabase Storage
-- **LLM**: OpenRouter (poolside/laguna-s-2.1:free)
+- **LLM**: OpenRouter (nvidia/nemotron-3-ultra-550b-a55b:free)
 - **Deployment**: Cloudflare Pages (frontend) + Railway (backend)
 
 ## Getting Started
@@ -71,7 +71,7 @@ Set environment variables in Cloudflare Pages project settings:
 - `VITE_API_URL` — backend URL on Railway
 - `VITE_SUPABASE_URL` — Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` — Supabase anon key
-- `VITE_ANTHROPIC_MODEL` — LLM model identifier (e.g. `poolside/laguna-s-2.1:free`). See [Model Configuration](#model-configuration) below.
+- `VITE_ANTHROPIC_MODEL` — LLM model identifier (e.g. `nvidia/nemotron-3-ultra-550b-a55b:free`). See [Model Configuration](#model-configuration) below.
 
 ### Backend Deployment (Railway)
 1. Create a project at [railway.app](https://railway.app)
@@ -85,7 +85,7 @@ Set environment variables in Cloudflare Pages project settings:
    - `SUPABASE_ANON_KEY` — Supabase anon key
    - `LLM_API_KEY` — OpenRouter API key
    - `LLM_BASE_URL` — `https://openrouter.ai/api/v1`
-   - `ANTHROPIC_MODEL` — LLM model identifier (e.g. `poolside/laguna-s-2.1:free`). Change this in `.claude/settings.json` to update the model everywhere.
+   - `ANTHROPIC_MODEL` — LLM model identifier (e.g. `nvidia/nemotron-3-ultra-550b-a55b:free`). Change this in `.claude/settings.json` to update the model everywhere.
    - `CORS_ORIGINS` — your Cloudflare Pages frontend URL (e.g. `https://job-application-automation.pages.dev`)
 
 ## Project Structure

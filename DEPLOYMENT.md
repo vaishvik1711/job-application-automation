@@ -76,7 +76,7 @@ railway init --name job-automation-backend
 # Set env vars (using the keys you found in Step 1)
 railway env set LLM_API_KEY="sk-or-v1-..."  # Your OpenRouter API key
 railway env set LLM_BASE_URL="https://openrouter.ai/api/v1"
-railway env set ANTHROPIC_MODEL="poolside/laguna-s-2.1:free"
+railway env set ANTHROPIC_MODEL="nvidia/nemotron-3-ultra-550b-a55b:free"
 railway env set SUPABASE_URL="https://[your-project].supabase.co"
 railway env set SUPABASE_ANON_KEY="your-supabase-anon-key"
 railway env set DATABASE_URL="postgresql://postgres:[password]@[host].supabase.co:5432/postgres"
@@ -123,7 +123,7 @@ vercel link  # Link to your existing project or create new
 # VITE_API_URL  | https://[your-railway-url].up.railway.app
 # VITE_SUPABASE_URL | https://[your-project].supabase.co
 # VITE_SUPABASE_ANON_KEY | your-supabase-anon-key
-# VITE_ANTHROPIC_MODEL | poolside/laguna-s-2.1:free
+# VITE_ANTHROPIC_MODEL | nvidia/nemotron-3-ultra-550b-a55b:free
 ```
 
 ### 3.3 Deploy
@@ -174,7 +174,7 @@ Or deploy via the Vercel dashboard:
 | `DATABASE_URL` | `postgresql://postgres:PASSWORD@db.X.supabase.co:5432/postgres` |
 | `LLM_API_KEY` | `sk-or-v1-...` (from OpenRouter) |
 | `LLM_BASE_URL` | `https://openrouter.ai/api/v1` |
-| `ANTHROPIC_MODEL` | `poolside/laguna-s-2.1:free` |
+| `ANTHROPIC_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` |
 | `SUPABASE_URL` | `https://project.supabase.co` |
 | `SUPABASE_ANON_KEY` | `eyJ...` (from Supabase) |
 | `CORS_ORIGINS` | `https://frontend.vercel.app` |
@@ -186,4 +186,4 @@ Or deploy via the Vercel dashboard:
 | `VITE_API_URL` | `https://job-automation.up.railway.app` |
 | `VITE_SUPABASE_URL` | `https://project.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | `eyJ...` (same as backend) |
-| `VITE_ANTHROPIC_MODEL` | `poolside/laguna-s-2.1:free` |
+| `VITE_ANTHROPIC_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` |

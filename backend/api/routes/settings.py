@@ -15,8 +15,8 @@ _DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL")
 
 DEFAULT_SETTINGS = {
     "llm": {
-        "provider": "openai",
-        "model": _DEFAULT_MODEL,
+        "provider": "nvidia",
+        "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
         "api_key": None,
         "base_url": None,
         "temperature": 0.7,

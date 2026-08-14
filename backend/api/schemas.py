@@ -337,7 +337,7 @@ class AnalyticsOverviewSchema(BaseModel):
 # ============ Settings Schemas ============
 
 class LLMSettingsSchema(BaseModel):
-    provider: str  # openai | anthropic | local | nvidia
+    provider: str  # nvidia
     model: str
     api_key: Optional[str] = None
     base_url: Optional[str] = None

@@ -404,7 +404,7 @@ export interface ResponseRate {
 
 // Settings Types
 export interface LLMSettings {
-  provider: 'openai' | 'anthropic' | 'local' | 'nvidia'
+  provider: 'nvidia'
   model: string
   api_key?: string
   base_url?: string
