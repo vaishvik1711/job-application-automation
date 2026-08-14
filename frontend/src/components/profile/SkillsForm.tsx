@@ -12,6 +12,7 @@ import { useProfileStore } from '@/store/index'
 const skillSchema = z.object({
   name: z.string().min(1, 'Skill name is required'),
   category: z.string().min(1, 'Category is required'),
+  proficiency: z.number().min(1).max(5),
 })
 
 const skillsFormSchema = z.object({
@@ -33,6 +34,14 @@ const SKILL_CATEGORIES = [
   'Other',
 ]
 
+const PROFICIENCY_LABELS = {
+  1: 'Beginner',
+  2: 'Novice',
+  3: 'Intermediate',
+  4: 'Advanced',
+  5: 'Expert',
+}
+
 interface SkillsFormProps {
   initialData?: Skill[]
   onSave: (data: Skill[]) => Promise<void>
@@ -50,7 +59,7 @@ export function SkillsForm({ initialData, onSave, isLoading }: SkillsFormProps) 
         : profile?.skills?.length
           ? profile.skills
           : [
-              { name: '', category: 'Programming Languages' },
+              { name: '', category: 'Programming Languages', proficiency: 3 },
             ],
     },
   })
