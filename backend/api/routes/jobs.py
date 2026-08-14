@@ -358,25 +358,37 @@ async def search_jobs(
             logger.info("No title keywords available — skipping title filter")
 
         # --- Phase 2: Auto-match against profile ---
+        # Only match jobs that don't already have a match in the DB
         job_ids = [j.id for j in jobs if j.id]
         matching_result_text = ""
         if job_ids:
-            await emit_pipeline_update(
-                stage="matching",
-                current=2,
-                total=3,
-                message=f"Analyzing {len(job_ids)} jobs against your profile...",
+            # Check which jobs already have a match
+            existing_stmt = select(JobMatch.job_id).where(
+                JobMatch.job_id.in_(job_ids)
             )
-            try:
-                m_agent = MatchingAgent()
-                m_result = await m_agent.match_jobs(job_ids=job_ids)
-                matching_result_text = (
-                    f" | {m_result.jobs_matched} matched"
-                    f" ({m_result.jobs_qualified} qualified)"
+            existing_result = await session.execute(existing_stmt)
+            existing_matched = {row[0] for row in existing_result.all()}
+
+            unmatched_ids = [jid for jid in job_ids if jid not in existing_matched]
+            if unmatched_ids:
+                await emit_pipeline_update(
+                    stage="matching",
+                    current=2,
+                    total=3,
+                    message=f"Analyzing {len(unmatched_ids)} jobs against your profile...",
                 )
-            except Exception as match_err:
-                logger.warning("Auto-matching failed (search continues): %s", match_err)
-                matching_result_text = " | matching skipped"
+                try:
+                    m_agent = MatchingAgent()
+                    m_result = await m_agent.match_jobs(job_ids=unmatched_ids)
+                    matching_result_text = (
+                        f" | {m_result.jobs_matched} matched"
+                        f" ({m_result.jobs_qualified} qualified)"
+                    )
+                except Exception as match_err:
+                    logger.warning("Auto-matching failed (search continues): %s", match_err)
+                    matching_result_text = " | matching skipped"
+            else:
+                matching_result_text = f" | {len(job_ids)} already matched"
 
         # --- Phase 3: Enrich jobs with match data ---
         enriched_jobs = []

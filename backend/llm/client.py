@@ -23,7 +23,7 @@ class LLMClient:
         model: Optional[str] = None,
         temperature: float = 0.1,
         max_retries: int = 3,
-        timeout: int = 180,
+        timeout: int = 300,
         max_tokens: int = 16000,
     ):
         self.api_key = api_key or os.getenv("LLM_API_KEY")
