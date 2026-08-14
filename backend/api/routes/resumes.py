@@ -7,7 +7,6 @@ from api.schemas import (
     GeneratedResumeSchema,
     ValidationResultSchema,
     ResumeTemplateSchema,
-    ResumeCustomizationOptionsSchema,
     ApiResponse,
 )
 from api.dependencies import get_db_session
@@ -130,7 +129,8 @@ async def generate_resume(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Generate a customized resume for a job."""
-    from resume.agent import ResumeAgent
+    import glob
+    from resume.agent import create_resume_agent
     from database.repositories import RepositoryFactory
 
     repo = RepositoryFactory(session)
@@ -143,11 +143,17 @@ async def generate_resume(
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    agent = await ResumeAgent.create()
+    # Find the user's uploaded resume (DOCX or PDF) in the master_resume directory
+    resume_dir = "data/master_resume"
+    resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
+    if not resume_files:
+        raise HTTPException(status_code=404, detail="No master resume found. Upload your resume first.")
+    master_resume_path = resume_files[0]
+
+    agent = await create_resume_agent()
     result = await agent.generate_resume(
         job_id=int(options["job_id"]),
-        master_resume_path="data/master_resume/test_resume.docx",
-        customization=ResumeCustomizationOptionsSchema(**options) if isinstance(options, dict) else options,
+        master_resume_path=master_resume_path,
     )
 
     return ApiResponse(data={
@@ -155,11 +161,10 @@ async def generate_resume(
         "job_id": options["job_id"],
         "job_title": job.title,
         "company": job.company,
-        "template_id": options.get("template_id", "professional"),
+        "template_id": "user_uploaded",
         "file_path": result.resume_path,
         "file_url": result.resume_path,
-        "format": options.get("format", "docx"),
-        "customization_options": options,
+        "format": "docx",
         "created_at": result.created_at.isoformat() if result.created_at else None,
     })
 
