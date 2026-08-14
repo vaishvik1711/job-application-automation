@@ -502,6 +502,13 @@ async def upload_resume(
     # Convert ParsedResume dataclass to the CandidateProfile shape the frontend expects
     profile_data = _parsed_resume_to_profile_dict(parsed)
 
+    # Save a copy locally for resume generation to use as the template
+    import os
+    os.makedirs("data/master_resume", exist_ok=True)
+    local_path = f"data/master_resume/{file.filename}"
+    with open(local_path, "wb") as f:
+        f.write(file_content)
+
     return ApiResponse(data={
         "file_id": file_id,
         "filename": file.filename,

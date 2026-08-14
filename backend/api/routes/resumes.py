@@ -12,7 +12,10 @@ from api.schemas import (
 from api.dependencies import get_db_session
 from database.models import Resume, CandidateProfile, Job
 
+from utils.logger import get_logger
+
 router = APIRouter()
+logger = get_logger(__name__)
 
 # Predefined resume templates (can be extended)
 RESUME_TEMPLATES = [
@@ -144,8 +147,29 @@ async def generate_resume(
         raise HTTPException(status_code=404, detail="Profile not found")
 
     # Find the user's uploaded resume (DOCX or PDF) in the master_resume directory
+    import os, glob
     resume_dir = "data/master_resume"
     resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
+
+    # Fallback: try to download from Supabase Storage
+    if not resume_files:
+        try:
+            from api.routes.profile import get_supabase_client
+            sb = get_supabase_client()
+            # List files in the resumes bucket
+            files = sb.storage.from_("resumes").list()
+            if files:
+                # Download the most recently uploaded resume
+                latest = files[-1]
+                file_data = sb.storage.from_("resumes").download(latest["name"])
+                os.makedirs(resume_dir, exist_ok=True)
+                local_path = f"{resume_dir}/{latest['name'].split('/')[-1]}"
+                with open(local_path, "wb") as f:
+                    f.write(file_data)
+                resume_files = [local_path]
+        except Exception as e:
+            logger.warning("Could not download resume from Supabase: %s", e)
+
     if not resume_files:
         raise HTTPException(status_code=404, detail="No master resume found. Upload your resume first.")
     master_resume_path = resume_files[0]
@@ -175,10 +199,35 @@ async def validate_resume(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Validate a generated resume."""
+    import glob, os
     from resume.validator import ResumeValidator
 
+    # Find the user's uploaded resume
+    resume_dir = "data/master_resume"
+    resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
+    if not resume_files:
+        # Try Supabase fallback
+        try:
+            from api.routes.profile import get_supabase_client
+            sb = get_supabase_client()
+            files = sb.storage.from_("resumes").list()
+            if files:
+                latest = files[-1]
+                file_data = sb.storage.from_("resumes").download(latest["name"])
+                os.makedirs(resume_dir, exist_ok=True)
+                local_path = f"{resume_dir}/{latest['name'].split('/')[-1]}"
+                with open(local_path, "wb") as f:
+                    f.write(file_data)
+                resume_files = [local_path]
+        except Exception as e:
+            logger.warning("Could not download resume from Supabase: %s", e)
+
+    master_resume_path = resume_files[0] if resume_files else None
+    if not master_resume_path:
+        raise HTTPException(status_code=404, detail="No master resume found")
+
     validator = await ResumeValidator.create()
-    result = await validator.validate_resume(int(resume_id), "data/master_resume/test_resume.docx")
+    result = await validator.validate_resume(int(resume_id), master_resume_path)
 
     return ApiResponse(data={
         "truthfulness_score": result.validation_score or 0,
