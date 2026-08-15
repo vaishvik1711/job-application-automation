@@ -217,7 +217,7 @@ railway ps                # Check the port shown
 ```bash
 railway env set LLM_API_KEY="sk-or-v1-..."
 railway env set LLM_BASE_URL="https://openrouter.ai/api/v1"
-railway env set ANTHROPIC_MODEL="poolside/laguna-s-2.1:free"
+railway env set ANTHROPIC_MODEL="nvidia/nemotron-3-ultra-550b-a55b:free"
 railway env set SUPABASE_URL="https://..."
 railway env set SUPABASE_ANON_KEY="eyJ..."
 railway env set DATABASE_URL="postgresql://..."

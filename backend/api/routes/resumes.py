@@ -135,12 +135,24 @@ async def generate_resume(
     import glob
     from resume.agent import create_resume_agent
     from database.repositories import RepositoryFactory
+    from sqlalchemy import select
+    from database.models import Job
+
+    logger.info(f"Generate resume called with options: {options}")
+    job_id = int(options["job_id"])
+    logger.info(f"Looking for job_id: {job_id}")
 
     repo = RepositoryFactory(session)
-    job = await repo.jobs.get_job(int(options["job_id"]))
+    job = await repo.jobs.get_job(job_id)
+    logger.info(f"Repository get_job result: {job}")
+
+    # Also try direct query
+    direct = await session.execute(select(Job).where(Job.id == job_id))
+    direct_job = direct.scalars().first()
+    logger.info(f"Direct query result: {direct_job}")
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail=f"Job not found (id={job_id})")
 
     profile = await repo.candidates.get_profile()
     if not profile:

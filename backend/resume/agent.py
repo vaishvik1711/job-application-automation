@@ -36,6 +36,7 @@ class ResumeGenerationResult:
     validation_score: Optional[float] = None
     traceability: List[Dict[str, Any]] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+    created_at: Optional[datetime] = None
 
 
 class ResumeAgent:
@@ -87,7 +88,8 @@ class ResumeAgent:
 
                 # Load additional experience
                 experience_notes = await repos.candidates.get_experience_notes(profile.id)
-                additional_exp = "\n".join([e.original_text for e in experience_notes])
+                additional_exp = "\n".join([e.original_text or "" for e in experience_notes])
+                logger.info(f"Additional exp loaded: {len(additional_exp)} chars")
 
             # Parse master resume
             parsed_resume = parse_resume(master_resume_path)
@@ -144,6 +146,7 @@ class ResumeAgent:
             result.success = True
             result.resume_path = output_path
             result.traceability = self._build_traceability(plan, parsed_resume, additional_exp)
+            result.created_at = datetime.utcnow()
             logger.info(f"Generated resume v{version} for job {job_id}: {output_path}")
 
         except Exception as e:
@@ -266,10 +269,11 @@ class ResumeAgent:
 
         # Summary traceability
         if plan.summary_rewrite:
+            exp_lines = additional_exp.split('\n') if additional_exp else []
             traceability.append({
                 "generated_content": plan.summary_rewrite,
                 "type": "summary",
-                "sources": ["master_resume.summary"] + [f"additional_experience[{i}]" for i in range(len(additional_exp.split('\n'))) if additional_exp.split('\n')[i].strip()],
+                "sources": ["master_resume.summary"] + [f"additional_experience[{i}]" for i in range(len(exp_lines)) if exp_lines[i].strip()],
             })
 
         # Bullet changes traceability

@@ -2,6 +2,10 @@
 FastAPI application for Job Automation System.
 This provides the REST API backend for the frontend dashboard.
 """
+# Load environment variables FIRST, before any other imports that read env vars
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +29,10 @@ from api.dependencies import engine, async_session
 from database import models as db_models
 from sqlalchemy import select
 
+# Setup logging
+from utils.logger import setup_logging
+setup_logging()
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,20 +48,34 @@ async def lifespan(app: FastAPI):
             # ------------------------------------------------------------------
             # Schema migrations for columns added after initial deployment.
             # ------------------------------------------------------------------
-            # 2026-08-13: added additional_experience to CandidateProfile
-            await conn.execute(
-                text(
-                    "ALTER TABLE candidate_profiles "
-                    "ADD COLUMN IF NOT EXISTS additional_experience JSON"
+            # Detect dialect to use correct ALTER TABLE syntax
+            dialect = engine.dialect.name
+            if dialect == "postgresql":
+                # PostgreSQL supports IF NOT EXISTS
+                await conn.execute(
+                    text(
+                        "ALTER TABLE candidate_profiles "
+                        "ADD COLUMN IF NOT EXISTS additional_experience JSON"
+                    )
                 )
-            )
-            # 2026-08-14: added title_keywords to CandidateProfile
-            await conn.execute(
-                text(
-                    "ALTER TABLE candidate_profiles "
-                    "ADD COLUMN IF NOT EXISTS title_keywords JSON"
+                await conn.execute(
+                    text(
+                        "ALTER TABLE candidate_profiles "
+                        "ADD COLUMN IF NOT EXISTS title_keywords JSON"
+                    )
                 )
-            )
+            elif dialect == "sqlite":
+                # SQLite doesn't support IF NOT EXISTS in ALTER TABLE
+                # Check if columns exist first
+                for col_name in ["additional_experience", "title_keywords"]:
+                    result = await conn.execute(
+                        text(f"PRAGMA table_info(candidate_profiles)")
+                    )
+                    columns = [row[1] for row in result.fetchall()]
+                    if col_name not in columns:
+                        await conn.execute(
+                            text(f"ALTER TABLE candidate_profiles ADD COLUMN {col_name} JSON")
+                        )
     except Exception as e:
         logger.warning("Database connection failed during startup: %s", e)
         logger.warning("Tables will not be created until the database is reachable.")
