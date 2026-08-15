@@ -56,10 +56,10 @@ class DocxEditor:
     Works by directly manipulating runs in paragraphs to keep fonts, styles, spacing intact.
     """
 
-    def __init__(self, docx_path: str):
+    def __init__(self, docx_path: str, preserve_original: bool = False):
         self.docx_path = Path(docx_path)
         self.doc: DocxDocument = docx.Document(docx_path)
-        self.original_doc = copy.deepcopy(self.doc)
+        self.original_doc = copy.deepcopy(self.doc) if preserve_original else None
         self.sections = self._identify_sections()
         self.format_info = self._extract_format_info()
 
@@ -503,9 +503,9 @@ class DocxEditor:
         target_para._element.addprevious(p_element)
 
 
-def create_docx_editor(docx_path: str) -> DocxEditor:
+def create_docx_editor(docx_path: str, preserve_original: bool = False) -> DocxEditor:
     """Factory function to create a DocxEditor."""
-    return DocxEditor(docx_path)
+    return DocxEditor(docx_path, preserve_original=preserve_original)
 
 
 def customize_resume_from_plan(

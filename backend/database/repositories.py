@@ -373,3 +373,37 @@ class RepositoryFactory:
         self.resumes = ResumeRepository(session)
         self.applications = ApplicationRepository(session)
         self.statistics = StatisticsRepository(session)
+
+    async def get_resume_generation_data(self, job_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Fetch all data needed for resume generation in a single query.
+        Returns dict with: job, match, profile, experience_notes
+        """
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from database.models import Job, JobMatch, CandidateProfile, CandidateExperience
+
+        result = await self.session.execute(
+            select(Job, JobMatch, CandidateProfile)
+            .join(JobMatch, Job.id == JobMatch.job_id)
+            .join(CandidateProfile)
+            .where(Job.id == job_id)
+        )
+        row = result.first()
+        if not row:
+            return None
+
+        job, match, profile = row
+
+        # Load experience notes for the profile
+        exp_result = await self.session.execute(
+            select(CandidateExperience).where(CandidateExperience.profile_id == profile.id)
+        )
+        experience_notes = list(exp_result.scalars().all())
+
+        return {
+            "job": job,
+            "match": match,
+            "profile": profile,
+            "experience_notes": experience_notes,
+        }

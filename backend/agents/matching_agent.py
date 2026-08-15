@@ -11,7 +11,7 @@ from database.repositories import RepositoryFactory
 from database.models import Job, JobMatch, JobStatus, CandidateProfile
 from agents.profile_agent import CandidateProfile as PydanticCandidateProfile
 from llm.client import get_llm_client
-from llm.schemas import JobMatchResult
+from llm.schemas import JobMatchResult, JobAnalysis
 from llm.prompts import get_prompt
 from utils.logger import get_logger
 from config import load_settings
@@ -42,6 +42,7 @@ class MatchingAgent:
         self.config = config or load_settings()
         self.llm = llm_client or get_llm_client()
         self.match_prompt = get_prompt("job_matching")
+        self.job_analysis_prompt = get_prompt("job_analysis")
         self.min_match_score = self.config.get("min_match_score", 50)
         self.min_technical_score = self.config.get("min_technical_score", 50)
         self.min_soft_skills_score = self.config.get("min_soft_skills_score", 0)
@@ -83,23 +84,23 @@ class MatchingAgent:
         # Process jobs in parallel with semaphore for concurrency control
         semaphore = asyncio.Semaphore(self.max_concurrent_matches)
 
-        async def match_with_semaphore(job: Job) -> tuple[Job, Optional[JobMatchResult], Optional[str]]:
+        async def match_with_semaphore(job: Job) -> tuple[Job, Optional[JobMatchResult], Optional[dict], Optional[str]]:
             """Match a single job with semaphore."""
             async with semaphore:
                 try:
-                    match_result = await self._match_single_job(job, profile)
-                    return job, match_result, None
+                    match_result, job_analysis = await self._match_single_job(job, profile)
+                    return job, match_result, job_analysis, None
                 except Exception as e:
                     error_msg = f"Error matching job {job.id}: {e}"
                     logger.error(error_msg)
-                    return job, None, error_msg
+                    return job, None, None, error_msg
 
         # Run all matches concurrently
         tasks = [match_with_semaphore(job) for job in jobs]
         results = await asyncio.gather(*tasks, return_exceptions=False)
 
         # Process results
-        for job, match_result, error_msg in results:
+        for job, match_result, job_analysis, error_msg in results:
             if error_msg:
                 result.errors.append(error_msg)
                 result.jobs_failed += 1
@@ -107,7 +108,7 @@ class MatchingAgent:
                 continue
 
             if match_result:
-                await self._save_match(job.id, match_result)
+                await self._save_match(job.id, match_result, job_analysis)
                 result.jobs_matched += 1
 
                 # Update job status based on recommendation
@@ -260,8 +261,11 @@ class MatchingAgent:
         # No match at all — likely irrelevant
         return False
 
-    async def _match_single_job(self, job: Job, profile: PydanticCandidateProfile) -> Optional[JobMatchResult]:
-        """Match a single job against the profile using LLM."""
+    async def _match_single_job(self, job: Job, profile: PydanticCandidateProfile) -> tuple[JobMatchResult, Optional[dict]]:
+        """Match a single job against the profile using LLM.
+
+        Returns tuple of (match_result, job_analysis_dict)
+        """
         # Skip LLM for irrelevant jobs (saves time)
         if not self._is_plausibly_relevant(job, profile):
             logger.debug(f"Skipping LLM for irrelevant job: {job.title} @ {job.company}")
@@ -277,7 +281,7 @@ class MatchingAgent:
                 missing_soft_skills=[],
                 concerns=["Job appears unrelated to candidate's background"],
                 reasoning="Pre-filter: job title and description have no overlap with candidate's skills or preferred titles.",
-            )
+            ), None
 
         job_data = {
             "title": job.title,
@@ -291,12 +295,22 @@ class MatchingAgent:
         }
         profile_summary = self._build_profile_summary(profile)
 
-        match_result = await self.llm.generate_json(
+        # Extract structured job analysis (run in parallel with matching for speed)
+        job_analysis_task = self.llm.generate_json(
+            system_prompt=self.job_analysis_prompt,
+            user_prompt=f"JOB DESCRIPTION:\n{job_data['description']}\n\nCOMPANY: {job_data['company']}\nTITLE: {job_data['title']}",
+            schema=JobAnalysis,
+        )
+        match_task = self.llm.generate_json(
             system_prompt=self.match_prompt,
             user_prompt=f"JOB:\n{job_data}\n\nPROFILE:\n{profile_summary}",
             schema=JobMatchResult,
         )
-        return match_result
+
+        # Wait for both to complete
+        job_analysis, match_result = await asyncio.gather(job_analysis_task, match_task)
+
+        return match_result, job_analysis.model_dump()
 
     def _build_profile_summary(self, profile: PydanticCandidateProfile) -> str:
         """Build a concise profile summary for LLM — compact format for speed."""
@@ -324,7 +338,7 @@ class MatchingAgent:
             + (f" | EXCLUDE REQS: {', '.join(profile.excluded_requirements)}" if profile.excluded_requirements else "")
         )
 
-    async def _save_match(self, job_id: int, match_result: JobMatchResult):
+    async def _save_match(self, job_id: int, match_result: JobMatchResult, job_analysis: Optional[dict] = None):
         """Save match result to database."""
         async with get_session() as session:
             repos = RepositoryFactory(session)
@@ -345,6 +359,7 @@ class MatchingAgent:
                 "concerns": match_result.concerns,
                 "reasoning": match_result.reasoning,
                 "prompt_version": "1.0.0",
+                "job_analysis": job_analysis,
             }
 
             if existing:

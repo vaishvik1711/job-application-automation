@@ -259,8 +259,8 @@ class ResumeValidator:
         issues = []
 
         try:
-            master_doc = DocxEditor(master_path)
-            generated_doc = DocxEditor(generated_path)
+            master_doc = DocxEditor(master_path, preserve_original=True)
+            generated_doc = DocxEditor(generated_path, preserve_original=True)
 
             # Check page count
             master_paras = len(master_doc.doc.paragraphs)

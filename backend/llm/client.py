@@ -4,9 +4,10 @@ Centralized LLM client with structured output support.
 import os
 import json
 import asyncio
+import random
 from typing import Type, TypeVar, Optional, Any
 from pydantic import BaseModel, ValidationError
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, wait_random
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
@@ -22,8 +23,8 @@ class LLMClient:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         temperature: float = 0.1,
-        max_retries: int = 3,
-        timeout: int = 300,
+        max_retries: int = 2,      # Reduced from 3 for faster failure on free tier
+        timeout: int = 90,         # Reduced from 300s (5min) to 90s for free tier
         max_tokens: int = 16000,
     ):
         self.api_key = api_key or os.getenv("LLM_API_KEY")
@@ -49,8 +50,8 @@ class LLMClient:
         )
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(2),  # Use max_retries from config
+        wait=wait_exponential(multiplier=0.5, min=1, max=5) + wait_random(0, 1),  # Faster with jitter
         retry=retry_if_exception_type((ValidationError, json.JSONDecodeError, ConnectionError)),
     )
     async def generate_json(
@@ -84,8 +85,8 @@ class LLMClient:
             raise ValueError(f"Failed to parse LLM response as {schema.__name__}: {e}\nResponse: {content}")
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(2),  # Use max_retries from config
+        wait=wait_exponential(multiplier=0.5, min=1, max=5) + wait_random(0, 1),  # Faster with jitter
         retry=retry_if_exception_type((ConnectionError, TimeoutError)),
     )
     async def generate_text(

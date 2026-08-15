@@ -201,6 +201,8 @@ class JobMatch(Base):
     concerns: Mapped[List[dict]] = mapped_column(JSON, default=list)
     reasoning: Mapped[str] = mapped_column(Text)
     prompt_version: Mapped[str] = mapped_column(String(20))
+    # Pre-computed job analysis from matching phase - avoids re-sending full job description
+    job_analysis: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     job: Mapped["Job"] = relationship("Job", back_populates="match")

@@ -4,6 +4,7 @@ Uses LLM to create tailored resumes for specific jobs.
 """
 import asyncio
 import json
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
@@ -24,6 +25,14 @@ if TYPE_CHECKING:
     from agents.profile_agent import CandidateProfile, AdditionalExperienceEntry
 
 logger = get_logger(__name__)
+
+# Cache for parsed resumes: key = (file_path, mtime), value = ParsedResume
+_parsed_resume_cache: Dict[tuple, "ParsedResume"] = {}
+
+# Cache for LLM customization plans: key = hash of inputs, value = ResumeCustomizationPlan
+_customization_plan_cache: Dict[str, "ResumeCustomizationPlan"] = {}
+# Max cache size to prevent memory issues
+_MAX_PLAN_CACHE_SIZE = 100
 
 
 @dataclass
@@ -66,33 +75,42 @@ class ResumeAgent:
         result = ResumeGenerationResult(success=False)
 
         try:
-            # Load job and match data
+            # Load all data in a single batched query
             async with get_session() as session:
                 repos = RepositoryFactory(session)
-                job = await repos.jobs.get_job(job_id)
-                match = await repos.matches.get_match(job_id)
+                data = await repos.get_resume_generation_data(job_id)
 
-                if not job:
-                    result.errors.append(f"Job {job_id} not found")
+                if not data:
+                    result.errors.append(f"Job {job_id} not found or no match")
                     return result
+
+                job = data["job"]
+                match = data["match"]
+                profile = data["profile"]
+                experience_notes = data["experience_notes"]
 
                 if not match or match.recommendation != "APPLY":
                     result.errors.append(f"Job {job_id} not qualified for application")
                     return result
 
-                # Load candidate profile
-                profile = await repos.candidates.get_profile()
                 if not profile:
                     result.errors.append("No candidate profile found")
                     return result
 
-                # Load additional experience
-                experience_notes = await repos.candidates.get_experience_notes(profile.id)
                 additional_exp = "\n".join([e.original_text or "" for e in (experience_notes or [])])
                 logger.info(f"Additional exp loaded: {len(additional_exp)} chars")
 
-            # Parse master resume
-            parsed_resume = parse_resume(master_resume_path)
+            # Parse master resume (with caching)
+            import os
+            mtime = os.path.getmtime(master_resume_path)
+            cache_key = (master_resume_path, mtime)
+            if cache_key in _parsed_resume_cache:
+                parsed_resume = _parsed_resume_cache[cache_key]
+                logger.debug(f"Using cached parsed resume for {master_resume_path}")
+            else:
+                parsed_resume = parse_resume(master_resume_path)
+                _parsed_resume_cache[cache_key] = parsed_resume
+                logger.debug(f"Parsed and cached resume: {master_resume_path}")
             master_resume_text = self._format_resume_for_llm(parsed_resume)
 
             # Build job analysis from match
@@ -156,54 +174,39 @@ class ResumeAgent:
         return result
 
     def _format_resume_for_llm(self, parsed: ParsedResume) -> str:
-        """Format parsed resume for LLM consumption."""
+        """Format parsed resume for LLM consumption - only include sections relevant for customization."""
         parts = []
 
-        if parsed.contact_info:
-            parts.append("CONTACT INFO:")
-            for k, v in parsed.contact_info.items():
-                parts.append(f"  {k}: {v}")
-
+        # Only include sections that are directly customized
         if parsed.summary:
-            parts.append(f"\nSUMMARY:\n{parsed.summary}")
+            parts.append(f"SUMMARY:\n{parsed.summary}")
 
         if parsed.work_history:
-            parts.append("\nWORK HISTORY:")
+            parts.append("WORK HISTORY:")
             for i, job in enumerate(parsed.work_history):
                 parts.append(f"\n  Job {i+1}:")
+                # Only include title, company, dates, and bullets - skip raw
                 for k, v in job.items():
-                    if k != "raw" and v:
+                    if k in ("title", "company", "location", "start_date", "end_date", "bullets") and v:
                         parts.append(f"    {k}: {v}")
 
-        if parsed.education:
-            parts.append("\nEDUCATION:")
-            for edu in parsed.education:
-                parts.append(f"  {edu.get('degree', '')} - {edu.get('school', '')} ({edu.get('year', '')})")
-
-        if parsed.skills:
-            parts.append(f"\nSKILLS: {', '.join(parsed.skills)}")
-
+        # Combine all skills into one section for customization relevance
+        all_skills = []
         if parsed.technical_skills:
-            parts.append(f"\nTECHNICAL SKILLS: {', '.join(parsed.technical_skills)}")
-
+            all_skills.extend(parsed.technical_skills)
         if parsed.tools:
-            parts.append(f"\nTOOLS: {', '.join(parsed.tools)}")
+            all_skills.extend(parsed.tools)
+        if parsed.skills:
+            all_skills.extend(parsed.skills)
+        if all_skills:
+            parts.append(f"SKILLS: {', '.join(all_skills)}")
 
-        if parsed.certifications:
-            parts.append("\nCERTIFICATIONS:")
-            for cert in parsed.certifications:
-                parts.append(f"  {cert.get('name', '')}")
-
-        if parsed.projects:
-            parts.append("\nPROJECTS:")
-            for proj in parsed.projects:
-                parts.append(f"  {proj.get('name', '')}: {proj.get('description', '')}")
-
+        # Skip: contact_info, education, certifications, projects - not customized
         return "\n".join(parts)
 
     def _build_job_analysis(self, match: JobMatch) -> Dict[str, Any]:
         """Build job analysis dict from match record."""
-        return {
+        analysis = {
             "match_score": match.match_score,
             "recommendation": match.recommendation,
             "strong_matches": match.strong_matches,
@@ -213,6 +216,10 @@ class ResumeAgent:
             "concerns": match.concerns,
             "reasoning": match.reasoning,
         }
+        # Include pre-computed job analysis from matching phase if available
+        if match.job_analysis:
+            analysis["job_analysis"] = match.job_analysis
+        return analysis
 
     async def _get_customization_plan(
         self,
@@ -221,25 +228,78 @@ class ResumeAgent:
         job: Job,
         job_analysis: Dict[str, Any],
     ) -> ResumeCustomizationPlan:
-        """Get customization plan from LLM."""
-        job_data = {
-            "title": job.title,
-            "company": job.company,
-            "location": job.location,
-            "description": job.description,
-            "requirements": job.requirements,
-            "skills": job.skills,
-            "tools": job.tools,
-        }
+        """Get customization plan from LLM with caching."""
+        # Check if we have pre-computed job analysis from matching phase
+        precomputed_analysis = job_analysis.get("job_analysis")
+
+        if precomputed_analysis:
+            # Use pre-computed analysis - skip sending full job description
+            job_data = {
+                "title": job.title,
+                "company": job.company,
+                # Only send truncated description for context
+                "description": job.description[:500] if job.description else "",
+            }
+            # Use pre-computed structured analysis directly
+            condensed_analysis = {
+                "match_score": job_analysis.get("match_score"),
+                "strong_matches": [m.get("skill") if isinstance(m, dict) else str(m) for m in job_analysis.get("strong_matches", [])],
+                "partial_matches": [m.get("skill") if isinstance(m, dict) else str(m) for m in job_analysis.get("partial_matches", [])],
+                "missing_requirements": job_analysis.get("missing_requirements", [])[:10],
+                "concerns": job_analysis.get("concerns", [])[:5],
+                # Pre-computed structured analysis from matching phase
+                "required_skills": precomputed_analysis.get("required_skills", []),
+                "preferred_skills": precomputed_analysis.get("preferred_skills", []),
+                "required_tools": precomputed_analysis.get("required_tools", []),
+                "preferred_tools": precomputed_analysis.get("preferred_tools", []),
+                "required_experience_years": precomputed_analysis.get("required_experience_years"),
+                "seniority_level": precomputed_analysis.get("seniority_level"),
+                "responsibilities": precomputed_analysis.get("responsibilities", [])[:5],
+            }
+            logger.debug("Using pre-computed job analysis from matching phase")
+        else:
+            # Fallback: send essential job fields (original behavior)
+            job_data = {
+                "title": job.title,
+                "company": job.company,
+                "description": job.description[:2000] if job.description else "",
+                "requirements": job.requirements[:1500] if job.requirements else "",
+                "skills": job.skills[:20] if job.skills else [],
+                "tools": job.tools[:15] if job.tools else [],
+            }
+            condensed_analysis = {
+                "match_score": job_analysis.get("match_score"),
+                "strong_matches": [m.get("skill") if isinstance(m, dict) else str(m) for m in job_analysis.get("strong_matches", [])],
+                "partial_matches": [m.get("skill") if isinstance(m, dict) else str(m) for m in job_analysis.get("partial_matches", [])],
+                "missing_requirements": job_analysis.get("missing_requirements", [])[:10],
+                "concerns": job_analysis.get("concerns", [])[:5],
+            }
+
+        # Build cache key from all inputs that affect the plan
+        cache_input = f"{master_resume_text}|{additional_exp[:2000] if additional_exp else ''}|{json.dumps(job_data, sort_keys=True)}|{json.dumps(condensed_analysis, sort_keys=True)}"
+        cache_key = hashlib.sha256(cache_input.encode()).hexdigest()[:32]
+
+        # Check cache
+        if cache_key in _customization_plan_cache:
+            logger.debug(f"Using cached customization plan (key: {cache_key[:8]})")
+            return _customization_plan_cache[cache_key]
 
         plan = await self.llm.generate_json(
             system_prompt=self.customization_prompt,
             user_prompt=f"MASTER RESUME:\n{master_resume_text}\n\n"
-                       f"ADDITIONAL EXPERIENCE:\n{additional_exp}\n\n"
+                       f"ADDITIONAL EXPERIENCE:\n{additional_exp[:2000] if additional_exp else ''}\n\n"
                        f"JOB:\n{json.dumps(job_data, indent=2)}\n\n"
-                       f"JOB MATCH ANALYSIS:\n{json.dumps(job_analysis, indent=2)}",
+                       f"JOB MATCH ANALYSIS:\n{json.dumps(condensed_analysis, indent=2)}",
             schema=ResumeCustomizationPlan,
         )
+
+        # Store in cache with size limit
+        if len(_customization_plan_cache) >= _MAX_PLAN_CACHE_SIZE:
+            # Remove oldest entry (first key)
+            oldest_key = next(iter(_customization_plan_cache))
+            del _customization_plan_cache[oldest_key]
+        _customization_plan_cache[cache_key] = plan
+        logger.debug(f"Cached new customization plan (key: {cache_key[:8]}, cache size: {len(_customization_plan_cache)})")
 
         return plan
 
@@ -315,19 +375,35 @@ class ResumeAgent:
         master_resume_path: str,
         limit: int = 50,
         output_dir: str = "data/generated_resumes",
+        max_concurrent: int = 3,
     ) -> List[ResumeGenerationResult]:
-        """Generate resumes for all qualified jobs."""
-        results = []
-
+        """Generate resumes for all qualified jobs in parallel."""
         async with get_session() as session:
             repos = RepositoryFactory(session)
             qualified_jobs = await repos.jobs.get_jobs_by_status(JobStatus.QUALIFIED, limit=limit)
 
-        for job in qualified_jobs:
-            result = await self.generate_resume(job.id, master_resume_path, output_dir)
-            results.append(result)
+        if not qualified_jobs:
+            return []
 
-        return results
+        # Limit concurrent LLM calls to avoid rate limits
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def gen_one(job):
+            async with semaphore:
+                return await self.generate_resume(job.id, master_resume_path, output_dir)
+
+        results = await asyncio.gather(*[gen_one(job) for job in qualified_jobs], return_exceptions=True)
+
+        # Handle any exceptions
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Error generating resume for job {qualified_jobs[i].id}: {result}")
+                final_results.append(ResumeGenerationResult(success=False, errors=[str(result)]))
+            else:
+                final_results.append(result)
+
+        return final_results
 
 
 async def create_resume_agent() -> ResumeAgent:
