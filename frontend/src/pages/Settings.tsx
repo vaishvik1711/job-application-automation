@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/Badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { JobSourceSettingsForm } from '@/components/settings/JobSourceSettingsForm'
+import { LLMSettingsForm } from '@/components/settings/LLMSettingsForm'
 import { MatchingSettingsForm } from '@/components/settings/MatchingSettingsForm'
 import { NotificationSettingsForm } from '@/components/settings/NotificationSettingsForm'
 import {
