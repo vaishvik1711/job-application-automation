@@ -192,6 +192,10 @@ async def generate_resume(
         master_resume_path=master_resume_path,
     )
 
+    if not result.success:
+        logger.error(f"Resume generation failed: {result.errors}")
+        raise HTTPException(status_code=500, detail=f"Resume generation failed: {result.errors}")
+
     return ApiResponse(data={
         "id": str(result.resume_id),
         "job_id": options["job_id"],
@@ -263,6 +267,7 @@ async def download_resume(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Download a resume file."""
+    import os
     from database.repositories import RepositoryFactory
     from fastapi.responses import FileResponse
 
@@ -273,6 +278,14 @@ async def download_resume(
         raise HTTPException(status_code=404, detail="Resume not found")
 
     file_path = resume.file_path
+    # Convert to absolute path if relative
+    if not os.path.isabs(file_path):
+        file_path = os.path.abspath(file_path)
+
+    if not os.path.exists(file_path):
+        logger.error(f"Resume file not found at path: {file_path}")
+        raise HTTPException(status_code=404, detail="Resume file not found on disk")
+
     return FileResponse(
         path=file_path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"

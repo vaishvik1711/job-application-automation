@@ -88,7 +88,7 @@ class ResumeAgent:
 
                 # Load additional experience
                 experience_notes = await repos.candidates.get_experience_notes(profile.id)
-                additional_exp = "\n".join([e.original_text or "" for e in experience_notes])
+                additional_exp = "\n".join([e.original_text or "" for e in (experience_notes or [])])
                 logger.info(f"Additional exp loaded: {len(additional_exp)} chars")
 
             # Parse master resume
@@ -266,6 +266,9 @@ class ResumeAgent:
     ) -> List[Dict[str, Any]]:
         """Build traceability mapping for validation."""
         traceability = []
+
+        # Ensure additional_exp is a string
+        additional_exp = additional_exp or ""
 
         # Summary traceability
         if plan.summary_rewrite:
