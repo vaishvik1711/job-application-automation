@@ -64,6 +64,12 @@ async def lifespan(app: FastAPI):
                         "ADD COLUMN IF NOT EXISTS title_keywords JSON"
                     )
                 )
+                await conn.execute(
+                    text(
+                        "ALTER TABLE job_matches "
+                        "ADD COLUMN IF NOT EXISTS job_analysis JSON"
+                    )
+                )
             elif dialect == "sqlite":
                 # SQLite doesn't support IF NOT EXISTS in ALTER TABLE
                 # Check if columns exist first
@@ -76,6 +82,15 @@ async def lifespan(app: FastAPI):
                         await conn.execute(
                             text(f"ALTER TABLE candidate_profiles ADD COLUMN {col_name} JSON")
                         )
+                # Check for job_analysis column in job_matches
+                result = await conn.execute(
+                    text("PRAGMA table_info(job_matches)")
+                )
+                columns = [row[1] for row in result.fetchall()]
+                if "job_analysis" not in columns:
+                    await conn.execute(
+                        text("ALTER TABLE job_matches ADD COLUMN job_analysis JSON")
+                    )
     except Exception as e:
         logger.warning("Database connection failed during startup: %s", e)
         logger.warning("Tables will not be created until the database is reachable.")
