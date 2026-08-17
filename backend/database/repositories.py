@@ -376,24 +376,29 @@ class RepositoryFactory:
 
     async def get_resume_generation_data(self, job_id: int) -> Optional[Dict[str, Any]]:
         """
-        Fetch all data needed for resume generation in a single query.
+        Fetch all data needed for resume generation.
         Returns dict with: job, match, profile, experience_notes
         """
         from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
         from database.models import Job, JobMatch, CandidateProfile, CandidateExperience
 
+        # JobMatch has no FK/relationship to CandidateProfile, so its join
+        # cannot be inferred — fetch job+match via the valid join, then get
+        # the singleton candidate profile separately (single-candidate system).
         result = await self.session.execute(
-            select(Job, JobMatch, CandidateProfile)
+            select(Job, JobMatch)
             .join(JobMatch, Job.id == JobMatch.job_id)
-            .join(CandidateProfile)
             .where(Job.id == job_id)
         )
         row = result.first()
         if not row:
             return None
 
-        job, match, profile = row
+        job, match = row
+
+        profile = await self.candidates.get_profile()
+        if not profile:
+            return None
 
         # Load experience notes for the profile
         exp_result = await self.session.execute(
