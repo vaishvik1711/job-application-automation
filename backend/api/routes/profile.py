@@ -21,6 +21,7 @@ from database.models import (
     JobMatch,
     JobSource,
     Job,
+    MasterResume,
 )
 
 logger = logging.getLogger(__name__)
@@ -508,6 +509,18 @@ async def upload_resume(
     local_path = f"data/master_resume/{file.filename}"
     with open(local_path, "wb") as f:
         f.write(file_content)
+
+    # Persist to the DB so the master resume survives container redeploys
+    # (the container filesystem is ephemeral and Supabase Storage may be
+    # unavailable). Single-candidate app: replace any previous master resume.
+    try:
+        await session.execute(sa_delete(MasterResume))
+        ext = os.path.splitext(file.filename or "")[1].lstrip(".").lower() or "docx"
+        session.add(MasterResume(filename=file.filename, file_type=ext, file_data=file_content))
+        await session.commit()
+        logger.info("Master resume persisted to DB (%s, %d bytes)", file.filename, len(file_content))
+    except Exception as e:
+        logger.warning("Could not persist master resume to DB: %s", e)
 
     return ApiResponse(data={
         "file_id": file_id,

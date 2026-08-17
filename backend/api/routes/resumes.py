@@ -163,7 +163,28 @@ async def generate_resume(
     resume_dir = "data/master_resume"
     resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
 
-    # Fallback: try to download from Supabase Storage
+    # Fallback 1: restore the master resume from the DB if it vanished from the
+    # ephemeral container filesystem (e.g. after a redeploy)
+    if not resume_files:
+        try:
+            from database.models import MasterResume
+            from sqlalchemy import select as sa_select
+            master_resume = (
+                await session.execute(
+                    sa_select(MasterResume).order_by(MasterResume.created_at.desc()).limit(1)
+                )
+            ).scalars().first()
+            if master_resume:
+                os.makedirs(resume_dir, exist_ok=True)
+                local_path = f"{resume_dir}/{master_resume.filename}"
+                with open(local_path, "wb") as f:
+                    f.write(bytes(master_resume.file_data))
+                resume_files = [local_path]
+                logger.info("Restored master resume from DB: %s", master_resume.filename)
+        except Exception as e:
+            logger.warning("Could not restore master resume from DB: %s", e)
+
+    # Fallback 2: try to download from Supabase Storage
     if not resume_files:
         try:
             from api.routes.profile import get_supabase_client
@@ -221,6 +242,24 @@ async def validate_resume(
     # Find the user's uploaded resume
     resume_dir = "data/master_resume"
     resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
+    if not resume_files:
+        # Restore from DB first (survives container redeploys)
+        try:
+            from database.models import MasterResume
+            from sqlalchemy import select as sa_select
+            master_resume = (
+                await session.execute(
+                    sa_select(MasterResume).order_by(MasterResume.created_at.desc()).limit(1)
+                )
+            ).scalars().first()
+            if master_resume:
+                os.makedirs(resume_dir, exist_ok=True)
+                local_path = f"{resume_dir}/{master_resume.filename}"
+                with open(local_path, "wb") as f:
+                    f.write(bytes(master_resume.file_data))
+                resume_files = [local_path]
+        except Exception as e:
+            logger.warning("Could not restore master resume from DB: %s", e)
     if not resume_files:
         # Try Supabase fallback
         try:

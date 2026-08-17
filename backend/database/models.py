@@ -6,7 +6,7 @@ from enum import Enum as PyEnum
 from typing import Optional, List
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, Boolean,
-    ForeignKey, Enum, Index, UniqueConstraint, JSON, Date
+    ForeignKey, Enum, Index, UniqueConstraint, JSON, Date, LargeBinary
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from database.database import Base
@@ -350,3 +350,19 @@ class AppSettings(Base):
     value: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MasterResume(Base):
+    """
+    The user's uploaded master resume (used as the format-preserving template
+    for generated resumes). Persisted in the DB because the container
+    filesystem is ephemeral on Railway and Supabase Storage access can be
+    unavailable — this guarantees the resume survives redeploys.
+    """
+    __tablename__ = "master_resumes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    file_type: Mapped[str] = mapped_column(String(10), default="docx")  # docx | pdf
+    file_data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
