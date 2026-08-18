@@ -244,6 +244,7 @@ async def batch_generate(
     from database.repositories import RepositoryFactory
     from database.models import Job, MasterResume, Application, ApplicationStatus as AppStatusEnum
     from sqlalchemy import select as sa_select
+    from sqlalchemy.exc import IntegrityError
     from api.websocket import emit_pipeline_update
 
     repo = RepositoryFactory(session)
@@ -317,21 +318,34 @@ async def batch_generate(
 
                 application_id = None
                 if body.auto_apply:
-                    # Check for existing application
-                    existing = await session.execute(
-                        sa_select(Application).where(Application.job_id == job_id)
-                    )
-                    if not existing.scalars().first():
-                        new_app = Application(
-                            candidate_id=1,
-                            job_id=job_id,
-                            resume_id=result.resume_id,
-                            application_url=job.application_url or "https://example.com/apply",
-                            status=AppStatusEnum.READY,
+                    try:
+                        # Use nested savepoint so a single IntegrityError
+                        # doesn't roll back the entire session transaction.
+                        async with session.begin_nested():
+                            existing = await session.execute(
+                                sa_select(Application).where(Application.job_id == job_id)
+                            )
+                            if not existing.scalars().first():
+                                new_app = Application(
+                                    candidate_id=profile.id,
+                                    job_id=job_id,
+                                    resume_id=result.resume_id,
+                                    application_url=job.application_url or "https://example.com/apply",
+                                    status=AppStatusEnum.READY,
+                                )
+                                session.add(new_app)
+                                await session.flush()
+                                application_id = str(new_app.id)
+                    except IntegrityError:
+                        # Application already exists (unique constraint on job_id).
+                        # The savepoint has been rolled back automatically;
+                        # the outer transaction is still intact.
+                        existing = await session.execute(
+                            sa_select(Application).where(Application.job_id == job_id)
                         )
-                        session.add(new_app)
-                        await session.flush()
-                        application_id = str(new_app.id)
+                        app = existing.scalars().first()
+                        if app:
+                            application_id = str(app.id)
 
                 await emit_pipeline_update("generating", idx, total, f"✓ Resume created for {job.title} at {job.company}", job_id=job_id_str)
 
