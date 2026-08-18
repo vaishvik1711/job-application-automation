@@ -194,9 +194,14 @@ export function useGenerateResume() {
 }
 
 export function useBatchGenerateResumes() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: BatchGenerateRequest) =>
       resumesApi.batchGenerate(data).then((res) => res.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.resumes() })
+    },
   })
 }
 
