@@ -7,6 +7,7 @@ import type {
   ResumeCustomizationOptions,
   ApplicationStatus,
   AppSettings,
+  BatchGenerateRequest,
 } from '@/types'
 
 // Query Keys
@@ -189,6 +190,13 @@ export function useGenerateResume() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.resumes() })
     },
+  })
+}
+
+export function useBatchGenerateResumes() {
+  return useMutation({
+    mutationFn: (data: BatchGenerateRequest) =>
+      resumesApi.batchGenerate(data).then((res) => res.data),
   })
 }
 

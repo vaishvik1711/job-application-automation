@@ -452,3 +452,24 @@ class PipelineProgressSchema(BaseModel):
     total: int
     message: str
     job_id: Optional[str] = None
+
+
+class BatchResumeRequest(BaseModel):
+    job_ids: List[str]
+    auto_apply: bool = False
+    max_concurrent: Optional[int] = 3
+
+
+class BatchResumeResult(BaseModel):
+    job_id: str
+    resume_id: Optional[str] = None
+    application_id: Optional[str] = None
+    success: bool
+    error: Optional[str] = None
+
+
+class BatchResumeResponse(BaseModel):
+    results: List[BatchResumeResult]
+    total: int
+    succeeded: int
+    failed: int

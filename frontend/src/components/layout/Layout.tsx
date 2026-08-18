@@ -1,13 +1,9 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useUIStore } from '@/store'
 import {
   LayoutDashboard,
-  User,
   Search,
-  Target,
-  FileText,
   Kanban,
-  BarChart3,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -15,24 +11,21 @@ import {
   Moon,
   Sun,
   LogOut,
+  Target,
 } from 'lucide-react'
 import { cn } from '@/utils/helpers'
 import { WebSocketStatus } from '@/components/WebSocketStatus'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Profile', href: '/profile', icon: User },
-  { name: 'Job Search', href: '/job-search', icon: Search },
-  { name: 'Job Matching', href: '/job-matching', icon: Target },
-  { name: 'Resume Builder', href: '/resume-builder', icon: FileText },
+  { name: 'Jobs', href: '/jobs', icon: Search },
   { name: 'Applications', href: '/applications', icon: Kanban },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Settings', href: '/settings', icon: Settings },
 ] as const
 
 export function Layout() {
   const { sidebarOpen, toggleSidebar, theme, setTheme } = useUIStore()
   const location = useLocation()
+  const navigate = useNavigate()
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark'
@@ -128,6 +121,13 @@ export function Layout() {
             </div>
             <div className="flex items-center gap-4">
               <WebSocketStatus compact />
+              <button
+                onClick={() => navigate('/settings')}
+                className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                aria-label="Settings"
+              >
+                <Settings className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+              </button>
               <button className="relative p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                 <Bell className="w-5 h-5 text-slate-600 dark:text-slate-400" />
                 <span className="absolute top-1 right-1 w-2 h-2 bg-danger-500 rounded-full" />

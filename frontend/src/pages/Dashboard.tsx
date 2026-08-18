@@ -1,6 +1,7 @@
+import { useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  LayoutDashboard,
   Briefcase,
   Target,
   FileText,
@@ -8,17 +9,17 @@ import {
   TrendingUp,
   ArrowRight,
   RefreshCw,
-  Download,
+  Upload,
+  Search,
+  User,
 } from 'lucide-react'
-import { usePipelineStats } from '@/hooks/useApi'
-import { useJobSearchStore } from '@/store'
+import { usePipelineStats, useProfile } from '@/hooks/useApi'
 import { cn, formatNumber } from '@/utils/helpers'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Progress } from '@/components/ui/Progress'
-import { FunnelChart } from '@/components/dashboard/FunnelChart'
-import { RecentActivity } from '@/components/dashboard/RecentActivity'
-import { QuickActions } from '@/components/dashboard/QuickActions'
+import { ResumeUpload } from '@/components/profile/ResumeUpload'
+import { toast } from 'sonner'
 
 const pipelineStages = [
   { key: 'discovered', label: 'Discovered', icon: Briefcase, color: 'bg-slate-500' },
@@ -33,25 +34,20 @@ const pipelineStages = [
 type PipelineKey = (typeof pipelineStages)[number]['key']
 
 export function Dashboard() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: stats } = usePipelineStats()
-  const { setSearching, setSearchProgress } = useJobSearchStore()
+  const { data: profile } = useProfile()
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['analytics', 'pipeline'] })
     queryClient.invalidateQueries({ queryKey: ['jobs', 'stats'] })
   }
 
-  const handleStartSearch = async () => {
-    setSearching(true)
-    setSearchProgress({ current: 0, total: 100, message: 'Initializing search...' })
-    // This would trigger the backend search
-    // For now, just simulate
-    setTimeout(() => {
-      setSearching(false)
-      setSearchProgress(null)
-    }, 3000)
-  }
+  const handleResumeComplete = useCallback(() => {
+    toast.success('Resume uploaded and parsed!')
+    queryClient.invalidateQueries({ queryKey: ['profile'] })
+  }, [queryClient])
 
   const getStatValue = (key: PipelineKey): number => {
     if (!stats) return 0
@@ -65,18 +61,59 @@ export function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Overview of your job application pipeline
+            Upload your resume, search jobs, and apply — all in one place
           </p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" onClick={handleRefresh} size="sm">
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button onClick={handleStartSearch} size="sm">
-            <LayoutDashboard className="w-4 h-4 mr-2" /> New Search
-          </Button>
+          {profile && (
+            <Button onClick={() => navigate('/jobs')} size="sm">
+              <Search className="w-4 h-4 mr-2" /> Search Jobs
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Resume Upload / Profile Summary */}
+      {!profile ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5 text-primary-500" />
+              Upload Your Resume
+            </CardTitle>
+            <CardDescription>
+              Upload your existing resume (PDF or DOCX). We'll parse it and auto-fill your profile.
+              Then you can search for matching jobs in one click.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResumeUpload onComplete={handleResumeComplete} />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="w-5 h-5 text-primary-500" />
+                  Profile Ready
+                </CardTitle>
+                <CardDescription>
+                  {profile.personal_info?.full_name || 'Your profile'} • {profile.personal_info?.email || ''}
+                  {profile.skills?.length ? ` • ${profile.skills.length} skills` : ''}
+                </CardDescription>
+              </div>
+              <Button onClick={() => navigate('/jobs')}>
+                <Search className="w-4 h-4 mr-2" /> Find Matching Jobs
+              </Button>
+            </div>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
@@ -92,7 +129,6 @@ export function Dashboard() {
                   <stage.icon className="w-5 h-5 text-white" />
                 </div>
               </div>
-              {/* Mini progress bar */}
               <Progress
                 value={getStatValue(stage.key)}
                 max={getStatValue('discovered') || 1}
@@ -102,56 +138,6 @@ export function Dashboard() {
             </CardContent>
           </Card>
         ))}
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Pipeline Funnel */}
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Application Pipeline</CardTitle>
-                  <CardDescription>Track jobs through each stage of the process</CardDescription>
-                </div>
-                <Button variant="outline" size="sm">
-                  <Download className="w-4 h-4 mr-2" /> Export
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <FunnelChart
-                stages={pipelineStages.map((s) => ({
-                  label: s.label,
-                  value: getStatValue(s.key),
-                  color: s.color.replace('bg-', '').replace('-500', ''),
-                }))}
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Quick Actions */}
-        <div className="lg:col-span-1">
-          <QuickActions />
-        </div>
-      </div>
-
-      {/* Recent Activity & Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RecentActivity />
-        <Card>
-          <CardHeader>
-            <CardTitle>Match Score Distribution</CardTitle>
-            <CardDescription>Distribution of job match scores</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64 flex items-center justify-center text-slate-400">
-              <span className="text-sm">Chart coming soon - integrates with Recharts</span>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   )

@@ -8,6 +8,9 @@ from api.schemas import (
     ValidationResultSchema,
     ResumeTemplateSchema,
     ApiResponse,
+    BatchResumeRequest,
+    BatchResumeResult,
+    BatchResumeResponse,
 )
 from api.dependencies import get_db_session
 from database.models import Resume, CandidateProfile, Job
@@ -228,6 +231,140 @@ async def generate_resume(
         "format": "docx",
         "created_at": result.created_at.isoformat() if result.created_at else None,
     })
+
+
+@router.post("/resumes/batch-generate")
+async def batch_generate(
+    body: BatchResumeRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Generate resumes for multiple jobs in one call. Optionally auto-create application records."""
+    import os, glob, asyncio
+    from resume.agent import create_resume_agent
+    from database.repositories import RepositoryFactory
+    from database.models import Job, MasterResume, Application, ApplicationStatus as AppStatusEnum
+    from sqlalchemy import select as sa_select
+    from api.websocket import emit_pipeline_update
+
+    repo = RepositoryFactory(session)
+    total = len(body.job_ids)
+    results: list[dict] = []
+
+    if total == 0:
+        return BatchResumeResponse(results=[], total=0, succeeded=0, failed=0)
+
+    # Resolve master resume path (same 3-tier fallback as single generate)
+    resume_dir = "data/master_resume"
+    resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
+    if not resume_files:
+        try:
+            master_resume = (
+                await session.execute(
+                    sa_select(MasterResume).order_by(MasterResume.created_at.desc()).limit(1)
+                )
+            ).scalars().first()
+            if master_resume:
+                os.makedirs(resume_dir, exist_ok=True)
+                local_path = f"{resume_dir}/{master_resume.filename}"
+                with open(local_path, "wb") as f:
+                    f.write(bytes(master_resume.file_data))
+                resume_files = [local_path]
+        except Exception as e:
+            logger.warning("Could not restore master resume from DB: %s", e)
+
+    if not resume_files:
+        try:
+            from api.routes.profile import get_supabase_client
+            sb = get_supabase_client()
+            files = sb.storage.from_("resumes").list()
+            if files:
+                latest = files[-1]
+                file_data = sb.storage.from_("resumes").download(latest["name"])
+                os.makedirs(resume_dir, exist_ok=True)
+                local_path = f"{resume_dir}/{latest['name'].split('/')[-1]}"
+                with open(local_path, "wb") as f:
+                    f.write(file_data)
+                resume_files = [local_path]
+        except Exception as e:
+            logger.warning("Could not download resume from Supabase: %s", e)
+
+    if not resume_files:
+        raise HTTPException(status_code=404, detail="No master resume found. Upload your resume first.")
+    master_resume_path = resume_files[0]
+
+    # Check candidate profile
+    profile = await repo.candidates.get_profile()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    agent = await create_resume_agent()
+    semaphore = asyncio.Semaphore(body.max_concurrent or 3)
+
+    async def gen_one(job_id_str: str, idx: int):
+        async with semaphore:
+            try:
+                job_id = int(job_id_str)
+                job = await repo.jobs.get_job(job_id)
+                if not job:
+                    raise ValueError(f"Job not found (id={job_id})")
+
+                await emit_pipeline_update("generating", idx, total, f"Generating resume for {job.title} at {job.company}...", job_id=job_id_str)
+
+                result = await agent.generate_resume(job_id=job_id, master_resume_path=master_resume_path)
+
+                if not result.success:
+                    raise ValueError(f"Generation failed: {result.errors}")
+
+                application_id = None
+                if body.auto_apply:
+                    # Check for existing application
+                    existing = await session.execute(
+                        sa_select(Application).where(Application.job_id == job_id)
+                    )
+                    if not existing.scalars().first():
+                        new_app = Application(
+                            candidate_id=1,
+                            job_id=job_id,
+                            resume_id=result.resume_id,
+                            application_url=job.application_url or "https://example.com/apply",
+                            status=AppStatusEnum.READY,
+                        )
+                        session.add(new_app)
+                        await session.flush()
+                        application_id = str(new_app.id)
+
+                await emit_pipeline_update("generating", idx, total, f"✓ Resume created for {job.title} at {job.company}", job_id=job_id_str)
+
+                return {
+                    "job_id": job_id_str,
+                    "resume_id": str(result.resume_id),
+                    "application_id": application_id,
+                    "success": True,
+                    "error": None,
+                }
+            except Exception as e:
+                logger.error(f"Batch generation failed for job {job_id_str}: {e}")
+                await emit_pipeline_update("generating", idx, total, f"✗ Failed for job {job_id_str}: {str(e)[:80]}", job_id=job_id_str)
+                return {
+                    "job_id": job_id_str,
+                    "resume_id": None,
+                    "application_id": None,
+                    "success": False,
+                    "error": str(e),
+                }
+
+    tasks = [gen_one(jid, i + 1) for i, jid in enumerate(body.job_ids)]
+    batch_results = await asyncio.gather(*tasks)
+
+    succeeded = sum(1 for r in batch_results if r["success"])
+    failed = total - succeeded
+
+    return BatchResumeResponse(
+        results=[BatchResumeResult(**r) for r in batch_results],
+        total=total,
+        succeeded=succeeded,
+        failed=failed,
+    )
 
 
 @router.get("/resumes/{resume_id}/validate", response_model=ApiResponse)

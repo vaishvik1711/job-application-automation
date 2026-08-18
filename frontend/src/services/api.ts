@@ -20,6 +20,8 @@ import type {
   PaginatedResponse,
   ApiResponse,
   ApiError,
+  BatchGenerateRequest,
+  BatchResumeResponse,
 } from '@/types'
 
 // Create axios instance
@@ -188,6 +190,9 @@ export const resumesApi = {
 
   generate: (options: ResumeCustomizationOptions) =>
     api.post<ApiResponse<GeneratedResume>>('/resumes/generate', options),
+
+  batchGenerate: (data: BatchGenerateRequest) =>
+    api.post<BatchResumeResponse>('/resumes/batch-generate', data, { timeout: 300000 }),
 
   validate: (id: string) => api.get<ApiResponse<ValidationResult>>(`/resumes/${id}/validate`),
 

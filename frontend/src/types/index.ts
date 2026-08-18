@@ -267,6 +267,27 @@ export interface GeneratedResume {
   created_at: string
 }
 
+export interface BatchResumeResult {
+  job_id: string
+  resume_id: string | null
+  application_id: string | null
+  success: boolean
+  error: string | null
+}
+
+export interface BatchResumeResponse {
+  results: BatchResumeResult[]
+  total: number
+  succeeded: number
+  failed: number
+}
+
+export interface BatchGenerateRequest {
+  job_ids: string[]
+  auto_apply?: boolean
+  max_concurrent?: number
+}
+
 export interface ValidationResult {
   truthfulness_score: number
   ats_score: number
