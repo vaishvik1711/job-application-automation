@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { useResumes, useGenerateResume, useDownloadResume } from '@/hooks/useApi'
+import { useResumes, useGenerateResume } from '@/hooks/useApi'
 import { useUIStore } from '@/store'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -33,7 +33,6 @@ export function ResumeBuilder() {
 
   const { data: resumesData, isLoading: isLoadingResumes, refetch: refetchResumes } = useResumes({ page: 1, page_size: 50 })
   const generateMutation = useGenerateResume()
-  const downloadMutation = useDownloadResume()
   const { addNotification } = useUIStore()
 
   const resumes = resumesData?.items || []
@@ -71,17 +70,19 @@ export function ResumeBuilder() {
   }, [jobId, generateMutation, refetchResumes, addNotification])
 
   const handleDownload = useCallback(
-    async (format: 'docx' | 'pdf') => {
+    (format: 'docx' | 'pdf') => {
       if (!generatedResume) return
 
-      try {
-        await downloadMutation.mutateAsync({ id: generatedResume.id, format })
-        toast.success(`Downloaded ${format.toUpperCase()} file`)
-      } catch (err: any) {
-        toast.error('Failed to download resume')
-      }
+      // Navigate directly to the backend download URL. The backend returns
+      // Content-Disposition: attachment so the browser downloads the file
+      // without navigating away from this page.
+      const baseUrl = import.meta.env.VITE_API_URL || '/api'
+      const url = `${baseUrl}/resumes/${generatedResume.id}/download?format=${format}`
+      window.location.href = url
+
+      toast.success('Download started...')
     },
-    [generatedResume, downloadMutation]
+    [generatedResume]
   )
 
   const handleSelectResume = (resume: any) => {
@@ -200,11 +201,8 @@ export function ResumeBuilder() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-3">
-                <Button onClick={() => handleDownload('docx')} loading={isGenerating}>
+                <Button onClick={() => handleDownload('docx')}>
                   <Download className="w-4 h-4 mr-2" /> Download DOCX
-                </Button>
-                <Button variant="outline" onClick={() => handleDownload('pdf')}>
-                  <Download className="w-4 h-4 mr-2" /> Download PDF
                 </Button>
               </div>
             </CardContent>
