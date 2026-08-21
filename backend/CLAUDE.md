@@ -12,15 +12,17 @@ This is an AI-powered job application automation system with the following phase
 - Phase 3: Job Matching & Scoring (LLM-based matching with weighted scoring)
 - Phase 4: Resume Customization & Validation (format-preserving DOCX generation + validation)
 - Phase 5: Real Job Sources (Indeed, JobBank, LinkedIn, Glassdoor, Company Careers)
-- Phase 6: Browser Automation (planned)
-- Phase 7: Application Submission (planned)
-- Phase 8: Orchestration & Continuous Execution (planned)
+- Phase 6: Browser Automation (`browser/` — site flows, login, form filling)
+- Phase 7: Application Submission (`application/service.py` ApplyService — implemented, gated below)
+- Phase 8: Orchestration & Continuous Execution
 
 ## Key Constraints
-- **NO JOB APPLICATIONS** - This is for testing only. Do not submit any applications until Phase 7+ is implemented and explicitly enabled.
-- Use mock data and test sources for development
+- **Auto-apply is feature-gated.** Submission is allowed ONLY to these sites: JobBank Canada, Greenhouse-hosted boards, Lever-hosted postings, or the local mock apply target (`ENABLE_MOCK_APPLY_TARGET=1`). LinkedIn/Indeed are explicitly rejected by `browser/sites/detect_site`.
+- **MANUAL is the default submission mode** (`AUTO_SUBMIT=false`): the bot fills the form headless, parks it, and the owner confirms the final Submit from the UI. AUTO mode additionally requires `AUTO_SUBMIT=true` in the environment AND an explicit per-run override — never enable either casually.
+- **Credentials are secrets**: job-site logins live in `site_credentials` encrypted with Fernet (`CREDENTIAL_ENCRYPTION_KEY`). Never log passwords, never return them from any endpoint (GET returns masked hints only), never commit them. `.env` is gitignored.
+- Use mock data and test sources for development; destructive tests run only against a local scratch DB, never production Supabase.
 - All LLM calls use structured JSON output via Pydantic schemas
-- Database is SQLite with SQLAlchemy async
+- Database is Postgres (Supabase) in prod / SQLite locally, SQLAlchemy async
 - Excel is used as reporting layer only (not source of truth)
 
 ## Architecture

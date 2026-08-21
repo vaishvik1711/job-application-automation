@@ -22,6 +22,9 @@ lxml>=4.9.0
 # Browser Automation
 playwright>=1.40.0
 
+# Secrets (credential encryption at rest)
+cryptography>=42.0.0
+
 # Utilities
 tenacity>=8.3.0
 python-dateutil>=2.8.0

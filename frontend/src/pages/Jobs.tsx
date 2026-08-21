@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useJobSearch } from '@/hooks/useApi'
-import { useBatchGenerateResumes, useMatches, useProfile } from '@/hooks/useApi'
+import { useBatchGenerateResumes, useMatches, useProfile, useResumes } from '@/hooks/useApi'
 import { useJobSearchStore } from '@/store'
 import { JobCard } from '@/components/job-search/JobCard'
 import { Button } from '@/components/ui/Button'
@@ -15,7 +15,10 @@ import {
   Loader2,
   ArrowRight,
   RefreshCw,
+  FileText,
+  Download,
 } from 'lucide-react'
+import { downloadResume } from '@/utils/download'
 import { toast } from 'sonner'
 import type { MatchDetail } from '@/types'
 
@@ -23,6 +26,7 @@ export function Jobs() {
   const navigate = useNavigate()
   const { data: profile } = useProfile()
   const { data: matchesData, isLoading: isLoadingMatches, refetch: refetchMatches } = useMatches({ page_size: 50 })
+  const { data: resumesData } = useResumes({ page: 1, page_size: 12 })
   const jobSearch = useJobSearch()
   const batchGenerate = useBatchGenerateResumes()
 
@@ -292,7 +296,7 @@ export function Jobs() {
                   )}
                   {batchGenerate.isPending
                     ? 'Generating...'
-                    : `Generate & Apply (${selectedJobs.size})`}
+                    : `Generate Resumes (${selectedJobs.size})`}
                 </Button>
               </div>
             </div>
@@ -342,6 +346,40 @@ export function Jobs() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Generated Resumes library */}
+      {resumesData?.items && resumesData.items.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary-500" />
+              Generated Resumes ({resumesData.total ?? resumesData.items.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {resumesData.items.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => downloadResume(r.id, r.job_title)}
+                  className="group flex items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-left hover:border-primary-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  title={`Download ${r.format?.toUpperCase?.() || 'DOCX'} resume`}
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">
+                      {r.job_title || `Resume #${r.id}`}
+                    </span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">
+                      {r.company || '—'}
+                    </span>
+                  </span>
+                  <Download className="w-4 h-4 flex-shrink-0 text-slate-400 group-hover:text-primary-500 transition-colors" />
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

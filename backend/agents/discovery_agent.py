@@ -219,6 +219,7 @@ class DiscoveryAgent:
                         title=job.title,
                         company=job.company,
                         location=job.location,
+                        application_url=job.url,
                         remote_type=RemoteType(job.remote_type) if job.remote_type else RemoteType.ON_SITE,
                         employment_type=EmploymentType(job.employment_type) if job.employment_type else EmploymentType.FULL_TIME,
                         date_posted=job.date_posted,

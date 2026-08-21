@@ -15,6 +15,7 @@ import { JobSourceSettingsForm } from '@/components/settings/JobSourceSettingsFo
 import { LLMSettingsForm } from '@/components/settings/LLMSettingsForm'
 import { MatchingSettingsForm } from '@/components/settings/MatchingSettingsForm'
 import { NotificationSettingsForm } from '@/components/settings/NotificationSettingsForm'
+import { CredentialsSettingsForm } from '@/components/settings/CredentialsSettingsForm'
 import {
   Save,
   RefreshCw,
@@ -23,6 +24,7 @@ import {
   Target,
   Bell,
   FileText,
+  KeyRound,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -157,7 +159,7 @@ export function Settings() {
 
       {/* Settings Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4 lg:w-auto">
+        <TabsList className="grid w-full grid-cols-5 lg:w-auto">
           <TabsTrigger value="llm" className="flex items-center gap-2">
             <Brain className="w-4 h-4" /> LLM
           </TabsTrigger>
@@ -169,6 +171,9 @@ export function Settings() {
           </TabsTrigger>
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Bell className="w-4 h-4" /> Notifications
+          </TabsTrigger>
+          <TabsTrigger value="credentials" className="flex items-center gap-2">
+            <KeyRound className="w-4 h-4" /> Credentials
           </TabsTrigger>
         </TabsList>
 
@@ -206,6 +211,12 @@ export function Settings() {
             onChange={handleNotificationsChange}
             onSave={() => handleSaveSection('Notifications')}
           />
+        </TabsContent>
+
+        {/* Job-site credentials — saves via its own encrypted endpoint,
+            never through the generic settings PATCH above */}
+        <TabsContent value="credentials">
+          <CredentialsSettingsForm />
         </TabsContent>
       </Tabs>
 

@@ -17,6 +17,7 @@ import {
   ArrowLeft,
 } from 'lucide-react'
 import { formatRelativeTime, formatNumber } from '@/utils/helpers'
+import { downloadResume } from '@/utils/download'
 import { toast } from 'sonner'
 
 type ViewMode = 'grid' | 'list'
@@ -70,17 +71,10 @@ export function ResumeBuilder() {
   }, [jobId, generateMutation, refetchResumes, addNotification])
 
   const handleDownload = useCallback(
-    (format: 'docx' | 'pdf') => {
+    (_format: 'docx' | 'pdf') => {
       if (!generatedResume) return
-
-      // Navigate directly to the backend download URL. The backend returns
-      // Content-Disposition: attachment so the browser downloads the file
-      // without navigating away from this page.
-      const baseUrl = import.meta.env.VITE_API_URL || '/api'
-      const url = `${baseUrl}/resumes/${generatedResume.id}/download?format=${format}`
-      window.location.href = url
-
-      toast.success('Download started...')
+      // Shared helper: authenticated blob request with error toasts.
+      downloadResume(generatedResume.id, generatedResume.job_title)
     },
     [generatedResume]
   )

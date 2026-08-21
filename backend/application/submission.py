@@ -11,8 +11,9 @@ from pathlib import Path
 from enum import Enum
 
 from browser.automation import BrowserAutomation, BrowserConfig, ApplicationResult
-from browser.form_filler import FormFiller
+from browser.form_filler import FormFiller, FormFillResult
 from browser.screening import ScreeningHandler, ScreeningQuestion
+from config import load_application_rules
 from database.repositories import RepositoryFactory
 from database import get_session
 from utils.logger import get_logger
@@ -52,6 +53,7 @@ class SubmissionResult:
     steps_completed: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     screenshots: List[str] = field(default_factory=list)
+    fields_remaining: List[str] = field(default_factory=list)
     requires_human: bool = False
     human_intervention_reason: Optional[str] = None
     submitted_at: Optional[datetime] = None
@@ -125,6 +127,7 @@ class ApplicationSubmission:
 
             # Submit or stop based on mode
             if context.mode == SubmissionMode.DRY_RUN:
+                await self._take_screenshot(context, result, "review_parked")
                 result.success = True
                 result.steps_completed.append("dry_run_complete")
                 result.requires_human = True
@@ -132,6 +135,9 @@ class ApplicationSubmission:
                 return result
 
             elif context.mode == SubmissionMode.MANUAL:
+                # Capture the parked form so the reviewer can see what the
+                # bot filled before deciding to submit.
+                await self._take_screenshot(context, result, "review_parked")
                 result.success = True
                 result.steps_completed.append("form_filled_ready_to_submit")
                 result.requires_human = True
@@ -194,6 +200,13 @@ class ApplicationSubmission:
         if fill_result.errors:
             result.errors.extend(fill_result.errors)
 
+        # Surface any fields the filler could not complete so the reviewer
+        # knows what to check before confirming submit.
+        if fill_result.fields_failed:
+            result.fields_remaining.extend(
+                f"field: {name}" for name in fill_result.fields_failed
+            )
+
         return True
 
     async def _upload_resume(self, context: ApplicationContext, result: SubmissionResult) -> bool:
@@ -212,9 +225,20 @@ class ApplicationSubmission:
 
         # Try to find and upload
         logger.info("Uploading resume...")
-        await self.form_filler._upload_file("resume_file", context.resume_path, type('obj', (object,), {'fields_filled': 0, 'fields_failed': [], 'errors': []})())
+        upload_result = FormFillResult(success=False, fields_filled=0)
+        try:
+            await self.form_filler._upload_file("resume_file", context.resume_path, upload_result)
+        except Exception as e:
+            upload_result.errors.append(f"resume upload failed: {e}")
 
-        result.steps_completed.append("resume_uploaded")
+        if upload_result.fields_filled > 0:
+            result.steps_completed.append("resume_uploaded")
+        else:
+            # Missing resume upload is not fatal — many ATS forms are optional —
+            # but it must surface to the human reviewer.
+            result.errors.extend(upload_result.errors or ["resume upload field not found"])
+            result.fields_remaining.append("resume_upload")
+            result.steps_completed.append("resume_upload_skipped")
         return True
 
     async def _handle_screening_questions(self, context: ApplicationContext, result: SubmissionResult) -> bool:
@@ -236,11 +260,30 @@ class ApplicationSubmission:
         # Answer questions
         answers = await self.screening_handler.answer_questions(questions)
 
+        # Enforce the configured auto-answer confidence threshold — answers
+        # below it are parked for the human reviewer instead of submitted.
+        try:
+            threshold = float(
+                load_application_rules()
+                .get("application_rules", {})
+                .get("screening", {})
+                .get("auto_answer_threshold", 0.9)
+            )
+        except Exception:
+            threshold = 0.9
+        for ans in answers:
+            if not ans.needs_human and getattr(ans, "confidence", 1.0) is not None:
+                if float(ans.confidence) < threshold:
+                    ans.needs_human = True
+
         # Check for human-required questions
         human_required = [a for a in answers if a.needs_human]
         if human_required:
             result.requires_human = True
             result.human_intervention_reason = f"{len(human_required)} questions need human review"
+            result.fields_remaining.extend(
+                f"question: {ans.question.question_text[:80]}" for ans in human_required
+            )
             for ans in human_required:
                 result.errors.append(f"Human needed: {ans.question.question_text[:100]}")
 
@@ -388,17 +431,19 @@ class ApplicationSubmission:
 
     async def _extract_confirmation_number(self) -> Optional[str]:
         """Extract confirmation number from page."""
+        import re
         patterns = [
-            r"confirmation[:\s#]+([A-Z0-9\-]+)",
-            r"reference[:\s#]+([A-Z0-9\-]+)",
-            r"application[:\s#]+([A-Z0-9\-]+)",
-            r"id[:\s#]+([A-Z0-9\-]+)",
+            r"confirmation[:\s#]+([A-Za-z0-9\-]+)",
+            r"reference[:\s#]+([A-Za-z0-9\-]+)",
+            r"application[:\s#]+([A-Za-z0-9\-]+)",
+            r"id[:\s#]+([A-Za-z0-9\-]+)",
         ]
 
         content = await self.automation.get_page_content()
-        import re
+        # Strip tags first — pages wrap the number in <strong>/<span> etc.
+        text = re.sub(r"<[^>]+>", " ", content)
         for pattern in patterns:
-            match = re.search(pattern, content, re.IGNORECASE)
+            match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 return match.group(1)
         return None

@@ -55,6 +55,11 @@ application_rules:
 
   # Application submission
   submission:
+    # Default per-run mode when the UI doesn't specify one.
+    # "manual" = bot fills the form, owner confirms the final Submit.
+    default_mode: "manual"
+    # How long a parked MANUAL review session stays alive (browser held open).
+    park_ttl_minutes: 30
     # Require explicit confirmation before submit in auto mode
     require_confirmation: true
     # Verify all fields before submit
@@ -72,13 +77,26 @@ application_rules:
     on_unsupported_site: true
     on_field_mismatch: true
 
-  # Site-specific rules
+  # Site-specific rules. Auto-apply supports ONLY the whitelisted sites
+  # below (plus Greenhouse/Lever boards) — linkedin/indeed are disabled and
+  # rejected by browser/sites/detect_site regardless of these flags.
   site_rules:
+    jobbank:
+      enabled: true
+      requires_login: true
+    greenhouse:
+      enabled: true
+      requires_login: false
+    lever:
+      enabled: true
+      requires_login: false
     linkedin:
-      use_easy_apply: true
+      enabled: false
+      use_easy_apply: false
       max_questions_auto: 10
     indeed:
-      use_indeed_apply: true
+      enabled: false
+      use_indeed_apply: false
       max_questions_auto: 10
     glassdoor:
       redirect_to_company: true

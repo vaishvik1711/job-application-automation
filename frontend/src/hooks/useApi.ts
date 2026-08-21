@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { profileApi, jobsApi, matchingApi, resumesApi, applicationsApi, analyticsApi, settingsApi } from '@/services/api'
+import { profileApi, jobsApi, matchingApi, resumesApi, applicationsApi, analyticsApi, settingsApi, credentialsApi } from '@/services/api'
 import type {
   CandidateProfile,
   JobSearchRequest,
@@ -8,6 +8,8 @@ import type {
   ApplicationStatus,
   AppSettings,
   BatchGenerateRequest,
+  ApplyMode,
+  ApplyStatusInfo,
 } from '@/types'
 
 // Query Keys
@@ -29,6 +31,8 @@ export const queryKeys = {
     timeSeries: (days: number) => ['analytics', 'timeseries', days] as const,
   },
   settings: ['settings'] as const,
+  credentials: ['credentials'] as const,
+  applyStatus: (id: string) => ['applications', id, 'apply-status'] as const,
   matching: {
     weights: ['matching', 'weights'] as const,
     threshold: ['matching', 'threshold'] as const,
@@ -281,6 +285,81 @@ export function useDeleteApplication() {
     mutationFn: (id: string) => applicationsApi.delete(id).then((res) => res.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.applications() })
+    },
+  })
+}
+
+// Auto-apply hooks
+export function useApplyToJob() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, mode }: { id: string; mode?: ApplyMode }) =>
+      applicationsApi.startApply(id, mode ?? 'manual').then((res) => res.data.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications() })
+    },
+  })
+}
+
+export function useApplyStatus(id: string | null) {
+  return useQuery({
+    queryKey: ['applications', id, 'apply-status'] as const,
+    queryFn: () => applicationsApi.applyStatus(id!).then((res) => res.data.data),
+    enabled: !!id,
+    // Poll while the run is live so the UI flips to review/failed promptly.
+    refetchInterval: (query) => {
+      const data = query.state.data as ApplyStatusInfo | undefined
+      if (data && (data.running || (!data.parked && data.status === 'APPLYING'))) return 3000
+      return false
+    },
+  })
+}
+
+export function useConfirmSubmit() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => applicationsApi.confirmSubmit(id).then((res) => res.data.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications() })
+    },
+  })
+}
+
+export function useCancelApply() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => applicationsApi.cancelApply(id).then((res) => res.data.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications() })
+    },
+  })
+}
+
+// Credentials hooks (job-site logins)
+export function useCredentials() {
+  return useQuery({
+    queryKey: queryKeys.credentials,
+    queryFn: () => credentialsApi.list().then((res) => res.data.data),
+  })
+}
+
+export function useSaveCredential() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ site, ...data }: { site: string; username?: string; password?: string }) =>
+      credentialsApi.save(site, data).then((res) => res.data.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.credentials })
+    },
+  })
+}
+
+export function useDeleteCredential() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (site: string) => credentialsApi.remove(site).then((res) => res.data.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.credentials })
     },
   })
 }

@@ -1,6 +1,7 @@
 import { Application, ApplicationStatus } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import { cn, formatRelativeTime, formatDateTime } from '@/utils/helpers'
 import {
   Building2,
@@ -8,19 +9,24 @@ import {
   Calendar,
   Clock,
   FileText,
+  Download,
   ExternalLink,
+  Play,
   CheckCircle,
   XCircle,
   AlertCircle,
 } from 'lucide-react'
+import { downloadResume } from '@/utils/download'
 
 const STATUS_COLORS: Record<ApplicationStatus, string> = {
   READY_TO_APPLY: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   APPLYING: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  NEEDS_REVIEW: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
   SUBMITTED: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
   INTERVIEW_SCHEDULED: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   INTERVIEWED: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   OFFER: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  FAILED: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
   REJECTED: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
   WITHDRAWN: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
 }
@@ -28,10 +34,12 @@ const STATUS_COLORS: Record<ApplicationStatus, string> = {
 const STATUS_ICONS: Record<ApplicationStatus, React.ComponentType<{ className?: string }>> = {
   READY_TO_APPLY: Clock,
   APPLYING: AlertCircle,
+  NEEDS_REVIEW: AlertCircle,
   SUBMITTED: CheckCircle,
   INTERVIEW_SCHEDULED: Calendar,
   INTERVIEWED: Calendar,
   OFFER: CheckCircle,
+  FAILED: XCircle,
   REJECTED: XCircle,
   WITHDRAWN: XCircle,
 }
@@ -39,10 +47,12 @@ const STATUS_ICONS: Record<ApplicationStatus, React.ComponentType<{ className?: 
 const STATUS_LABELS: Record<ApplicationStatus, string> = {
   READY_TO_APPLY: 'Ready to Apply',
   APPLYING: 'Applying',
+  NEEDS_REVIEW: 'Needs Review',
   SUBMITTED: 'Submitted',
   INTERVIEW_SCHEDULED: 'Interview Scheduled',
   INTERVIEWED: 'Interviewed',
   OFFER: 'Offer!',
+  FAILED: 'Failed',
   REJECTED: 'Rejected',
   WITHDRAWN: 'Withdrawn',
 }
@@ -51,9 +61,11 @@ interface ApplicationCardProps {
   application: Application
   onClick?: () => void
   isDragging?: boolean
+  /** Present only on Ready-to-Apply cards — quick apply button */
+  onApply?: (app: Application) => void
 }
 
-export function ApplicationCard({ application, onClick, isDragging }: ApplicationCardProps) {
+export function ApplicationCard({ application, onClick, isDragging, onApply }: ApplicationCardProps) {
   const { job, resume, status, applied_at, interview_date, notes, follow_up_date } = application
   const StatusIcon = STATUS_ICONS[status]
   const statusLabel = STATUS_LABELS[status]
@@ -120,10 +132,18 @@ export function ApplicationCard({ application, onClick, isDragging }: Applicatio
         {/* Resume & Notes */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-700">
           {resume && (
-            <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                downloadResume(resume.id, job.title)
+              }}
+              className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+              title="Download resume"
+            >
               <FileText className="w-3 h-3" />
-              <span>{resume.format.toUpperCase()} resume</span>
-            </div>
+              <span>{resume.format?.toUpperCase?.() || 'DOCX'} resume</span>
+              <Download className="w-3 h-3 ml-1" />
+            </button>
           )}
           <div className="flex items-center gap-1">
             {job.source_url && (
@@ -144,6 +164,20 @@ export function ApplicationCard({ application, onClick, isDragging }: Applicatio
         {/* Notes Preview */}
         {notes && (
           <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">{notes}</p>
+        )}
+
+        {/* Quick apply — only offered on Ready cards; stops drag/click propagation */}
+        {onApply && (
+          <Button
+            size="sm"
+            className="w-full"
+            onClick={(e) => {
+              e.stopPropagation()
+              onApply(application)
+            }}
+          >
+            <Play className="w-3 h-3 mr-1" /> Apply
+          </Button>
         )}
       </CardContent>
     </Card>

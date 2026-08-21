@@ -89,24 +89,30 @@ class StructuredLogger:
     def __init__(self, name: str):
         self.logger = logging.getLogger(name)
 
-    def _log(self, level: int, message: str, **kwargs):
+    def _log(self, level: int, message: str, *args, **kwargs):
+        # Support stdlib-style lazy formatting: logger.info("x %s", val).
+        if args:
+            try:
+                message = message % args
+            except (TypeError, ValueError):
+                pass  # never let a bad format string crash the caller
         extra = {k: v for k, v in kwargs.items() if v is not None}
         self.logger.log(level, message, extra=extra)
 
-    def info(self, message: str, **kwargs):
-        self._log(logging.INFO, message, **kwargs)
+    def info(self, message: str, *args, **kwargs):
+        self._log(logging.INFO, message, *args, **kwargs)
 
-    def debug(self, message: str, **kwargs):
-        self._log(logging.DEBUG, message, **kwargs)
+    def debug(self, message: str, *args, **kwargs):
+        self._log(logging.DEBUG, message, *args, **kwargs)
 
-    def warning(self, message: str, **kwargs):
-        self._log(logging.WARNING, message, **kwargs)
+    def warning(self, message: str, *args, **kwargs):
+        self._log(logging.WARNING, message, *args, **kwargs)
 
-    def error(self, message: str, **kwargs):
-        self._log(logging.ERROR, message, **kwargs)
+    def error(self, message: str, *args, **kwargs):
+        self._log(logging.ERROR, message, *args, **kwargs)
 
-    def critical(self, message: str, **kwargs):
-        self._log(logging.CRITICAL, message, **kwargs)
+    def critical(self, message: str, *args, **kwargs):
+        self._log(logging.CRITICAL, message, *args, **kwargs)
 
     def log_action(self, agent: str, job_id: Optional[int], action: str, status: str, **kwargs):
         """Log a structured action."""

@@ -154,6 +154,14 @@ class ResumeAgent:
                 result.resume_id = resume_record.id
                 result.version = version
 
+            # Persist to Supabase Storage so the download survives Railway's
+            # ephemeral-disk redeploys. Best-effort — never fail the generation.
+            try:
+                from storage import persist_resume_file
+                await persist_resume_file(resume_record.id, Path(output_path).name, output_path)
+            except Exception as upload_err:
+                logger.warning("Storage persist skipped for resume %s: %s", resume_record.id, upload_err)
+
             # Update job status
             async with get_session() as session:
                 repos = RepositoryFactory(session)

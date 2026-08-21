@@ -77,7 +77,7 @@ async def list_resumes(
             "company": "",
             "template_id": "",
             "file_path": r.file_path,
-            "file_url": r.filename,
+            "file_url": f"/resumes/{r.id}/download",
             "format": "docx",
             "customization_options": {},
             "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -129,7 +129,7 @@ async def get_resume(
         "company": job.company if job else "",
         "template_id": "",
         "file_path": resume.file_path,
-        "file_url": resume.filename,
+        "file_url": f"/resumes/{resume.id}/download",
         "format": "docx",
         "customization_options": {},
         "validation_result": {
@@ -246,7 +246,7 @@ async def generate_resume(
         "company": job.company,
         "template_id": "user_uploaded",
         "file_path": result.resume_path,
-        "file_url": result.resume_path,
+        "file_url": f"/resumes/{result.resume_id}/download",
         "format": "docx",
         "created_at": result.created_at.isoformat() if result.created_at else None,
     })
@@ -485,7 +485,11 @@ async def download_resume(
     format: str = "docx",
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Download a resume file."""
+    """Download a resume file.
+
+    Resolution order: local disk (this deploy's generations) → Supabase
+    Storage (survives redeploys; cached back to disk) → honest 404.
+    """
     import os
     from database.repositories import RepositoryFactory
     from fastapi.responses import FileResponse
@@ -502,20 +506,37 @@ async def download_resume(
         raise HTTPException(status_code=404, detail="Resume not found")
 
     file_path = resume.file_path
-    # Convert to absolute path if relative
     if not os.path.isabs(file_path):
         file_path = os.path.abspath(file_path)
 
     if not os.path.exists(file_path):
-        logger.error(f"Resume file not found at path: {file_path}")
-        raise HTTPException(status_code=404, detail="Resume file not found on disk")
+        # Disk miss — the usual case after a Railway redeploy. Try Storage.
+        from storage import materialize_resume
+        restored = await materialize_resume(numeric_id, resume.filename, file_path)
+        if not restored:
+            logger.error(f"Resume {numeric_id} found neither on disk nor in Storage")
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "This resume was generated before cloud storage was enabled and its "
+                    "file no longer exists on the server. Regenerate it from the job card."
+                ),
+            )
+
+    # Self-heal: if the file exists locally but was never persisted to Storage
+    # (e.g. generation raced a Storage outage), backfill it now.
+    try:
+        from storage import persist_resume_file
+        await persist_resume_file(numeric_id, resume.filename, file_path)
+    except Exception:
+        pass
 
     # Only DOCX files exist — serve honest bytes/mime instead of relabeling
     # a DOCX as a PDF when ?format=pdf is requested.
     return FileResponse(
         path=file_path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"resume_{resume.id}.docx",
+        filename=resume.filename or f"resume_{resume.id}.docx",
     )
 
 

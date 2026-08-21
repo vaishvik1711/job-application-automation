@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Job, JobSearchFilters, MatchWeights, CandidateProfile } from '@/types'
+import type { Job, JobSearchFilters, MatchWeights, CandidateProfile, ApplicationStatus } from '@/types'
 
 // UI State Store
 interface UIState {
@@ -215,23 +215,15 @@ interface ApplicationState {
   setDraggedApplication: (id: string | null) => void
 }
 
-type ApplicationStatus =
-  | 'READY_TO_APPLY'
-  | 'APPLYING'
-  | 'SUBMITTED'
-  | 'INTERVIEW_SCHEDULED'
-  | 'INTERVIEWED'
-  | 'OFFER'
-  | 'REJECTED'
-  | 'WITHDRAWN'
-
 const defaultColumns: Record<ApplicationStatus, string[]> = {
   READY_TO_APPLY: [],
   APPLYING: [],
+  NEEDS_REVIEW: [],
   SUBMITTED: [],
   INTERVIEW_SCHEDULED: [],
   INTERVIEWED: [],
   OFFER: [],
+  FAILED: [],
   REJECTED: [],
   WITHDRAWN: [],
 }

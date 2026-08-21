@@ -22,6 +22,11 @@ import type {
   ApiError,
   BatchGenerateRequest,
   BatchResumeResponse,
+  ApplyMode,
+  ApplyStartResult,
+  ApplyStatusInfo,
+  SiteCredentialHint,
+  CredentialsList,
 } from '@/types'
 
 // Create axios instance
@@ -232,6 +237,34 @@ export const applicationsApi = {
 
   bulkUpdateStatus: (ids: string[], status: ApplicationStatus) =>
     api.patch<ApiResponse<{ updated: number }>>('/applications/bulk-status', { ids, status }),
+
+  // Auto-apply
+  startApply: (id: string, mode: ApplyMode = 'manual') =>
+    api.post<ApiResponse<ApplyStartResult>>(`/applications/${id}/apply`, { mode }),
+
+  applyStatus: (id: string) =>
+    api.get<ApiResponse<ApplyStatusInfo>>(`/applications/${id}/apply/status`),
+
+  confirmSubmit: (id: string) =>
+    api.post<ApiResponse<{ application_id: string; submitted: boolean; confirmation_number?: string; message: string }>>(
+      `/applications/${id}/apply/confirm`
+    ),
+
+  cancelApply: (id: string) =>
+    api.post<ApiResponse<{ application_id: string; cancelled: boolean }>>(
+      `/applications/${id}/apply/cancel`
+    ),
+}
+
+// Credentials API (job-site logins — passwords never returned by the backend)
+export const credentialsApi = {
+  list: () => api.get<ApiResponse<CredentialsList>>('/settings/credentials'),
+
+  save: (site: string, data: { username?: string; password?: string }) =>
+    api.put<ApiResponse<SiteCredentialHint>>(`/settings/credentials/${site}`, data),
+
+  remove: (site: string) =>
+    api.delete<ApiResponse<{ site: string; configured: boolean }>>(`/settings/credentials/${site}`),
 }
 
 // Analytics API

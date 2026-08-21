@@ -7,6 +7,7 @@ export type WebSocketEventType =
   | 'job_found'
   | 'match_complete'
   | 'resume_generated'
+  | 'application_progress'
   | 'error'
   | 'progress'
   | 'connect'
@@ -92,6 +93,11 @@ class WebSocketService {
       this.socket.on('progress', (payload: PipelineProgress) => {
         this.emit('progress', payload)
         this.dispatch('progress', payload)
+      })
+
+      this.socket.on('application_progress', (payload: unknown) => {
+        this.emit('application_progress', payload)
+        this.dispatch('application_progress', payload)
       })
 
       this.socket.on('error', (error: Error) => {
@@ -207,6 +213,22 @@ class WebSocketService {
           total: progress.total,
           message: progress.message,
         })
+        break
+      }
+
+      case 'application_progress': {
+        const evt = payload as { stage: string; message: string; application_id: string }
+        // Terminal stages surface as notifications; progress stages stay quiet
+        // (the board already shows APPLYING).
+        if (evt.stage === 'submitted') {
+          addNotification({ type: 'success', message: `Application submitted (${evt.message})` })
+        } else if (evt.stage === 'needs_review' || evt.stage === 'review') {
+          addNotification({ type: 'warning', message: `Needs your review: ${evt.message}` })
+        } else if (evt.stage === 'failed') {
+          addNotification({ type: 'error', message: `Apply failed: ${evt.message}` })
+        } else if (evt.stage === 'cancelled') {
+          addNotification({ type: 'info', message: 'Apply run cancelled' })
+        }
         break
       }
 

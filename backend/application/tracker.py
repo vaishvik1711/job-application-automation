@@ -1,6 +1,11 @@
 """
 Application tracker for Phase 7.
 Tracks application status, handles retries, and manages submission history.
+
+NOTE: persistence here uses ONLY the real Application columns (see
+database/models.py). The ApplyService (application/service.py) is the
+authoritative writer during browser runs — this module is a utility for
+orchestration-level bookkeeping.
 """
 import asyncio
 import json
@@ -8,11 +13,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from enum import Enum
-from pathlib import Path
+
+from sqlalchemy import select
 
 from database.repositories import RepositoryFactory
 from database import get_session
-from database.models import Application, ApplicationStatus, ApplicationError
+from database.models import Application, ApplicationStatus
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -32,7 +38,7 @@ class ApplicationRecord:
     application_id: int
     job_id: int
     status: ApplicationStatus
-    mode: str
+    mode: str = "manual"
     attempts: int = 0
     last_attempt: Optional[datetime] = None
     next_retry: Optional[datetime] = None
@@ -61,91 +67,108 @@ class ApplicationTracker:
         job_id: int,
         mode: str,
         application_id: Optional[int] = None,
-    ) -> ApplicationRecord:
-        """Record the start of an application attempt."""
+    ) -> Optional[ApplicationRecord]:
+        """Mark an existing application as APPLYING. Returns None when there is
+        no application row yet (ApplyService creates those with the required
+        candidate/resume/application_url fields before driving the browser)."""
         async with get_session() as session:
             repos = RepositoryFactory(session)
 
+            app = None
             if application_id:
-                app = await repos.applications.get_by_id(application_id)
-                if app:
-                    app.status = ApplicationStatus.IN_PROGRESS
-                    app.attempts = (app.attempts or 0) + 1
-                    app.last_attempt_at = datetime.utcnow()
-                    await session.commit()
-                    return self._db_to_record(app)
+                app = await repos.applications.get_application(application_id)
+            if app is None:
+                app = await repos.applications.get_application_by_job(job_id)
+            if app is None:
+                logger.warning(
+                    f"No application row for job {job_id} — ApplyService owns creation"
+                )
+                return None
 
-            # Create new application record
-            app = await repos.applications.create_application(
-                job_id=job_id,
-                status=ApplicationStatus.IN_PROGRESS,
-                mode=mode,
-                attempts=1,
-                last_attempt_at=datetime.utcnow(),
-            )
+            app.status = ApplicationStatus.APPLYING
             await session.commit()
             return self._db_to_record(app)
 
-    async def record_application_result(self, record: ApplicationRecord, success: bool, details: Dict[str, Any]):
+    async def record_application_result(
+        self, record: ApplicationRecord, success: bool, details: Dict[str, Any]
+    ):
         """Record the result of an application attempt."""
         async with get_session() as session:
             repos = RepositoryFactory(session)
 
-            app = await repos.applications.get_by_id(record.application_id)
+            app = await repos.applications.get_application(record.application_id)
             if not app:
                 logger.error(f"Application {record.application_id} not found")
                 return
 
+            now = datetime.utcnow()
             if success:
                 app.status = ApplicationStatus.APPLIED
-                app.submitted_at = datetime.utcnow()
-                app.confirmation_number = details.get("confirmation_number")
+                app.applied_at = app.applied_at or now
+                app.submitted_at = now
+                app.confirmation = details.get("confirmation_number")
+                app.human_intervention_reason = None
             else:
-                # Determine if we should retry
                 error = details.get("error", "Unknown error")
                 requires_human = details.get("requires_human", False)
 
                 if requires_human:
-                    app.status = ApplicationStatus.MANUAL_REVIEW
-                    app.human_review_required = True
-                    app.human_review_reason = details.get("human_reason", "Human review required")
+                    # Bot filled what it could; owner must review + confirm submit.
+                    app.status = ApplicationStatus.NEEDS_HUMAN_INPUT
+                    app.fields_remaining = details.get("fields_remaining", [])
+                    app.human_intervention_reason = details.get(
+                        "human_reason", "Human review required"
+                    )
                 else:
                     app.status = ApplicationStatus.FAILED
-                    # Calculate next retry
-                    app.next_retry_at = self._calculate_next_retry(app.attempts or 1)
+                    app.error_message = str(error)[:2000]
 
-                # Record error
-                await repos.applications.add_error(
-                    application_id=app.id,
-                    error_type=type(details.get("exception", Exception())).__name__,
-                    error_message=error,
-                    error_details=json.dumps(details),
-                    is_retryable=not requires_human,
-                )
+                # Audit trail lives in application_errors — never in error_message.
+                try:
+                    await repos.applications.add_error(
+                        application_id=app.id,
+                        source=details.get("source", "tracker"),
+                        error_type=type(details.get("exception", Exception())).__name__,
+                        error_message=str(error)[:2000],
+                        current_url=details.get("current_url"),
+                        resolution="retry" if not requires_human else "human_review",
+                    )
+                except Exception:
+                    logger.exception("Failed to record application error audit row")
 
             await session.commit()
 
     async def get_pending_retries(self, max_attempts: int = 3) -> List[ApplicationRecord]:
-        """Get applications that are ready for retry."""
+        """Get failed applications that are candidates for retry."""
+        cutoff = datetime.utcnow() - timedelta(hours=1)
         async with get_session() as session:
-            repos = RepositoryFactory(session)
-
-            apps = await repos.applications.get_ready_for_retry(max_attempts=max_attempts)
+            result = await session.execute(
+                select(Application)
+                .where(
+                    Application.status == ApplicationStatus.FAILED,
+                    Application.updated_at < cutoff,
+                )
+                .limit(max_attempts)
+            )
+            apps = list(result.scalars().all())
             return [self._db_to_record(app) for app in apps]
 
     async def get_manual_review_queue(self) -> List[ApplicationRecord]:
         """Get applications requiring manual review."""
         async with get_session() as session:
-            repos = RepositoryFactory(session)
-
-            apps = await repos.applications.get_by_status(ApplicationStatus.MANUAL_REVIEW)
+            result = await session.execute(
+                select(Application).where(
+                    Application.status == ApplicationStatus.NEEDS_HUMAN_INPUT
+                )
+            )
+            apps = list(result.scalars().all())
             return [self._db_to_record(app) for app in apps]
 
     async def get_application_status(self, application_id: int) -> Optional[ApplicationRecord]:
         """Get current status of an application."""
         async with get_session() as session:
             repos = RepositoryFactory(session)
-            app = await repos.applications.get_by_id(application_id)
+            app = await repos.applications.get_application(application_id)
             if app:
                 return self._db_to_record(app)
             return None
@@ -154,12 +177,13 @@ class ApplicationTracker:
         self,
         application_id: int,
         status: ApplicationStatus,
-        **kwargs
+        **kwargs,
     ) -> bool:
         """Update application status."""
         async with get_session() as session:
             repos = RepositoryFactory(session)
-            return await repos.applications.update_status(application_id, status, **kwargs)
+            app = await repos.applications.update_application_status(application_id, status)
+            return app is not None
 
     async def mark_human_review_complete(
         self,
@@ -171,34 +195,40 @@ class ApplicationTracker:
         async with get_session() as session:
             repos = RepositoryFactory(session)
 
-            app = await repos.applications.get_by_id(application_id)
+            app = await repos.applications.get_application(application_id)
             if not app:
                 return False
 
             if success:
                 app.status = ApplicationStatus.APPLIED
-                app.submitted_at = datetime.utcnow()
+                now = datetime.utcnow()
+                app.applied_at = app.applied_at or now
+                app.submitted_at = now
             else:
                 app.status = ApplicationStatus.FAILED
-                app.human_review_required = False
 
-            app.human_review_notes = notes
-            app.human_review_completed_at = datetime.utcnow()
-
+            app.notes = notes or app.notes
             await session.commit()
             return True
 
     async def get_statistics(self, days: int = 30) -> Dict[str, Any]:
-        """Get application statistics."""
+        """Simple per-status counts over all applications."""
+        since = datetime.utcnow() - timedelta(days=days)
+        counts: Dict[str, int] = {}
+        total = 0
         async with get_session() as session:
-            repos = RepositoryFactory(session)
-
-            stats = await repos.applications.get_statistics(days=days)
-            return stats
+            result = await session.execute(select(Application))
+            for app in result.scalars().all():
+                created = app.created_at
+                if created and created < since:
+                    continue
+                key = app.status.value if hasattr(app.status, "value") else str(app.status)
+                counts[key] = counts.get(key, 0) + 1
+                total += 1
+        return {"days": days, "total": total, "by_status": counts}
 
     def _calculate_next_retry(self, attempt: int) -> datetime:
         """Calculate next retry time using exponential backoff."""
-        # Exponential backoff: 1hr, 4hr, 12hr, 24hr, 48hr...
         base_hours = 1
         max_hours = 72
         hours = min(base_hours * (2 ** (attempt - 1)), max_hours)
@@ -223,15 +253,11 @@ class ApplicationTracker:
             application_id=app.id,
             job_id=app.job_id,
             status=app.status,
-            mode=app.mode,
-            attempts=app.attempts or 0,
-            last_attempt=app.last_attempt_at,
-            next_retry=app.next_retry_at,
-            error_history=[],  # Would load from errors table
-            confirmation_number=app.confirmation_number,
+            attempts=1,
+            confirmation_number=app.confirmation,
             submitted_at=app.submitted_at,
-            human_review_required=app.human_review_required,
-            human_review_reason=app.human_review_reason,
+            human_review_required=app.status == ApplicationStatus.NEEDS_HUMAN_INPUT,
+            human_review_reason=app.human_intervention_reason,
         )
 
 
@@ -247,10 +273,10 @@ class ApplicationQueue:
         job_id: int,
         mode: str = "manual",
         priority: int = 0,
-    ) -> int:
-        """Add a job to the application queue."""
+    ) -> Optional[int]:
+        """Add a job to the application queue (returns None when no row exists yet)."""
         record = await self.tracker.record_application_start(job_id, mode)
-        return record.application_id
+        return record.application_id if record else None
 
     async def process_queue(
         self,
@@ -263,13 +289,10 @@ class ApplicationQueue:
         results = {"processed": 0, "success": 0, "failed": 0, "human_review": 0}
 
         while self.processing:
-            # Get pending applications
             pending = await self.tracker.get_pending_retries()
-
             if not pending:
                 break
 
-            # Process batch
             batch = pending[:batch_size]
             for record in batch:
                 if not self.processing:
@@ -281,12 +304,11 @@ class ApplicationQueue:
 
                     if result.success:
                         results["success"] += 1
-                    elif result.requires_human:
+                    elif getattr(result, "requires_human", False):
                         results["human_review"] += 1
                     else:
                         results["failed"] += 1
 
-                    # Small delay between applications
                     await asyncio.sleep(2)
 
                 except Exception as e:

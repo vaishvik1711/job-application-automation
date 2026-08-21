@@ -10,11 +10,18 @@ import {
   closestCenter,
 } from '@dnd-kit/core'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
-import { Application, ApplicationStatus } from '@/types'
+import { Application, ApplicationStatus, ApplyMode } from '@/types'
 import { ApplicationCard } from '@/components/applications/ApplicationCard'
 import { ApplicationDetail } from '@/components/applications/ApplicationDetail'
+import { ModePickerDialog } from '@/components/applications/ModePickerDialog'
 import { useApplicationStore } from '@/store'
-import { useApplications, useUpdateApplicationStatus, useDeleteApplication } from '@/hooks/useApi'
+import {
+  useApplications,
+  useUpdateApplicationStatus,
+  useDeleteApplication,
+  useApplyToJob,
+} from '@/hooks/useApi'
+import { applicationsApi } from '@/services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -22,16 +29,19 @@ import { cn } from '@/utils/helpers'
 import {
   RefreshCw,
   Clock,
+  Play,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 const COLUMN_ORDER: ApplicationStatus[] = [
   'READY_TO_APPLY',
   'APPLYING',
+  'NEEDS_REVIEW',
   'SUBMITTED',
   'INTERVIEW_SCHEDULED',
   'INTERVIEWED',
   'OFFER',
+  'FAILED',
   'REJECTED',
   'WITHDRAWN',
 ]
@@ -39,10 +49,12 @@ const COLUMN_ORDER: ApplicationStatus[] = [
 const COLUMN_LABELS: Record<ApplicationStatus, string> = {
   READY_TO_APPLY: 'Ready to Apply',
   APPLYING: 'Applying',
+  NEEDS_REVIEW: 'Needs Review',
   SUBMITTED: 'Submitted',
   INTERVIEW_SCHEDULED: 'Interview Scheduled',
   INTERVIEWED: 'Interviewed',
   OFFER: 'Offer',
+  FAILED: 'Failed',
   REJECTED: 'Rejected',
   WITHDRAWN: 'Withdrawn',
 }
@@ -50,10 +62,12 @@ const COLUMN_LABELS: Record<ApplicationStatus, string> = {
 const COLUMN_BG_COLORS: Record<ApplicationStatus, string> = {
   READY_TO_APPLY: 'bg-slate-50 dark:bg-slate-800/50',
   APPLYING: 'bg-blue-50 dark:bg-blue-900/10',
+  NEEDS_REVIEW: 'bg-amber-50 dark:bg-amber-900/10',
   SUBMITTED: 'bg-indigo-50 dark:bg-indigo-900/10',
   INTERVIEW_SCHEDULED: 'bg-purple-50 dark:bg-purple-900/10',
   INTERVIEWED: 'bg-orange-50 dark:bg-orange-900/10',
   OFFER: 'bg-green-50 dark:bg-green-900/10',
+  FAILED: 'bg-red-50 dark:bg-red-900/10',
   REJECTED: 'bg-red-50 dark:bg-red-900/10',
   WITHDRAWN: 'bg-gray-50 dark:bg-gray-800/50',
 }
@@ -61,18 +75,21 @@ const COLUMN_BG_COLORS: Record<ApplicationStatus, string> = {
 const COLUMN_BORDER_COLORS: Record<ApplicationStatus, string> = {
   READY_TO_APPLY: 'border-slate-300 dark:border-slate-700',
   APPLYING: 'border-blue-300 dark:border-blue-700',
+  NEEDS_REVIEW: 'border-amber-300 dark:border-amber-700',
   SUBMITTED: 'border-indigo-300 dark:border-indigo-700',
   INTERVIEW_SCHEDULED: 'border-purple-300 dark:border-purple-700',
   INTERVIEWED: 'border-orange-300 dark:border-orange-700',
   OFFER: 'border-green-300 dark:border-green-700',
+  FAILED: 'border-red-400 dark:border-red-700',
   REJECTED: 'border-red-300 dark:border-red-700',
   WITHDRAWN: 'border-gray-300 dark:border-gray-700',
 }
 
 // Draggable Card wrapper using dnd-kit
-function DraggableCard({ application, onClick }: {
+function DraggableCard({ application, onClick, onApply }: {
   application: Application
   onClick: () => void
+  onApply?: (app: Application) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: application.id,
@@ -86,7 +103,12 @@ function DraggableCard({ application, onClick }: {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <ApplicationCard application={application} onClick={onClick} isDragging={isDragging} />
+      <ApplicationCard
+        application={application}
+        onClick={onClick}
+        isDragging={isDragging}
+        onApply={onApply}
+      />
     </div>
   )
 }
@@ -107,6 +129,9 @@ function DroppableColumn({ status, children }: {
 export function ApplicationKanban() {
   const [detailApp, setDetailApp] = useState<Application | null>(null)
   const [showDetail, setShowDetail] = useState(false)
+  // Batch apply state: null = dialog closed
+  const [batchApply, setBatchApply] = useState<{ ids: string[]; autoSubmitEnabled: boolean } | null>(null)
+  const [isBatchApplying, setIsBatchApplying] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -116,6 +141,7 @@ export function ApplicationKanban() {
   const { data: appsData, isLoading, refetch } = useApplications({ page: 1, page_size: 100 })
   const updateStatusMutation = useUpdateApplicationStatus()
   const deleteMutation = useDeleteApplication()
+  const applyMutation = useApplyToJob()
 
   const {
     columns,
@@ -218,6 +244,60 @@ export function ApplicationKanban() {
     setShowDetail(true)
   }
 
+  // Quick "Apply" from a Ready card — opens the mode picker for that one app.
+  const handleApplyOne = useCallback((app: Application) => {
+    setBatchApply({ ids: [app.id], autoSubmitEnabled: false })
+  }, [])
+
+  // Header action — apply to every card in the Ready column.
+  const handleApplyAllReady = useCallback(async () => {
+    const readyIds = applications
+      .filter((a) => a.status === 'READY_TO_APPLY')
+      .map((a) => a.id)
+    if (readyIds.length === 0) {
+      toast.info('No applications are ready to apply')
+      return
+    }
+    let autoSubmitEnabled = false
+    try {
+      const statusRes = await applicationsApi.applyStatus(readyIds[0])
+      autoSubmitEnabled = !!statusRes.data.data?.auto_submit_enabled
+    } catch {
+      // Status probe failed — default to manual-only.
+    }
+    setBatchApply({ ids: readyIds, autoSubmitEnabled })
+  }, [applications])
+
+  // Run the batch with the chosen mode. Backend serializes browser runs to
+  // one at a time; we fire sequentially so each gets a clean start.
+  const handleStartBatch = useCallback(async (mode: ApplyMode) => {
+    if (!batchApply) return
+    setIsBatchApplying(true)
+    try {
+      let started = 0
+      for (const id of batchApply.ids) {
+        try {
+          await applyMutation.mutateAsync({ id, mode })
+          started += 1
+        } catch (err: any) {
+          const detail = err?.response?.data?.detail || 'apply failed'
+          toast.error(`${detail}`)
+        }
+      }
+      if (started > 0) {
+        toast.success(
+          mode === 'auto'
+            ? `Auto-applying to ${started} application${started > 1 ? 's' : ''}...`
+            : `${started} form${started > 1 ? 's' : ''} being filled — you'll review before anything is submitted`
+        )
+      }
+      setBatchApply(null)
+      refetch()
+    } finally {
+      setIsBatchApplying(false)
+    }
+  }, [batchApply, applyMutation, refetch])
+
   const handleUpdateStatus = async (id: string, status: ApplicationStatus, notes?: string) => {
     await updateStatusMutation.mutateAsync({ id, status, notes })
     refetch()
@@ -245,6 +325,21 @@ export function ApplicationKanban() {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          {(() => {
+            const readyCount = applications.filter((a) => a.status === 'READY_TO_APPLY').length
+            if (readyCount === 0) return null
+            return (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleApplyAllReady}
+                disabled={isBatchApplying}
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Apply to all ready ({readyCount})
+              </Button>
+            )
+          })()}
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
@@ -309,6 +404,7 @@ export function ApplicationKanban() {
                             key={app.id}
                             application={app}
                             onClick={() => handleCardClick(app)}
+                            onApply={status === 'READY_TO_APPLY' ? handleApplyOne : undefined}
                           />
                         ))}
                         {columnApps.length === 0 && (
@@ -351,6 +447,16 @@ export function ApplicationKanban() {
         onClose={() => setShowDetail(false)}
         onUpdateStatus={handleUpdateStatus}
         onDelete={handleDelete}
+      />
+
+      {/* Submission mode picker for batch/one-off apply */}
+      <ModePickerDialog
+        open={batchApply !== null}
+        count={batchApply?.ids.length ?? 0}
+        autoSubmitEnabled={batchApply?.autoSubmitEnabled ?? false}
+        isStarting={isBatchApplying}
+        onClose={() => setBatchApply(null)}
+        onStart={handleStartBatch}
       />
     </div>
   )

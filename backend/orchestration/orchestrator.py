@@ -293,7 +293,7 @@ class Orchestrator:
         # Get qualified jobs
         async with get_session() as session:
             repos = RepositoryFactory(session)
-            qualified_jobs = await repos.jobs.get_by_status(
+            qualified_jobs = await repos.jobs.get_jobs_by_status(
                 JobStatus.QUALIFIED,
                 limit=self.config.resume_limit
             )
@@ -334,7 +334,7 @@ class Orchestrator:
         # Get jobs ready to apply
         async with get_session() as session:
             repos = RepositoryFactory(session)
-            ready_jobs = await repos.jobs.get_by_status(
+            ready_jobs = await repos.jobs.get_jobs_by_status(
                 JobStatus.RESUME_CREATED,
                 limit=self.config.apply_limit
             )
@@ -348,15 +348,15 @@ class Orchestrator:
             if not self._running:
                 break
 
-            if not job.apply_url:
+            if not job.application_url:
                 logger.warning(f"Job {job.id} has no apply URL, skipping")
                 continue
 
             # Get resume for this job
             async with get_session() as session:
                 repos = RepositoryFactory(session)
-                resumes = await repos.resumes.get_by_job(job.id)
-                resume_path = resumes[0].file_path if resumes else None
+                resume = await repos.resumes.get_resume_by_job(job.id)
+                resume_path = resume.file_path if resume else None
 
             if not resume_path:
                 logger.warning(f"Job {job.id} has no resume, skipping")
@@ -365,7 +365,7 @@ class Orchestrator:
             # Check if already applied
             async with get_session() as session:
                 repos = RepositoryFactory(session)
-                existing = await repos.applications.get_by_job(job.id)
+                existing = await repos.applications.get_application_by_job(job.id)
                 if existing and existing.status == ApplicationStatus.APPLIED:
                     logger.info(f"Job {job.id} already applied, skipping")
                     continue
@@ -374,7 +374,7 @@ class Orchestrator:
             try:
                 context = ApplicationContext(
                     job_id=job.id,
-                    apply_url=job.apply_url,
+                    apply_url=job.application_url,
                     profile=self.profile,
                     resume_path=resume_path,
                     mode=submission_mode,
@@ -433,21 +433,21 @@ class Orchestrator:
         # Get job details
         async with get_session() as session:
             repos = RepositoryFactory(session)
-            job = await repos.jobs.get_by_id(job_id)
+            job = await repos.jobs.get_job(job_id)
 
         if not job:
             logger.error(f"Job {job_id} not found")
             return False
 
-        if not job.apply_url:
+        if not job.application_url:
             logger.error(f"Job {job_id} has no apply URL")
             return False
 
         # Get resume
         async with get_session() as session:
             repos = RepositoryFactory(session)
-            resumes = await repos.resumes.get_by_job(job_id)
-            resume_path = resumes[0].file_path if resumes else None
+            resume = await repos.resumes.get_resume_by_job(job_id)
+            resume_path = resume.file_path if resume else None
 
         if not resume_path:
             logger.error(f"Job {job_id} has no resume")
@@ -464,7 +464,7 @@ class Orchestrator:
         # Submit
         context = ApplicationContext(
             job_id=job.id,
-            apply_url=job.apply_url,
+            apply_url=job.application_url,
             profile=self.profile,
             resume_path=resume_path,
             mode=submission_mode,

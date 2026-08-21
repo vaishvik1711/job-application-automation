@@ -308,12 +308,47 @@ export interface ValidationIssue {
 export type ApplicationStatus =
   | 'READY_TO_APPLY'
   | 'APPLYING'
+  | 'NEEDS_REVIEW'
   | 'SUBMITTED'
+  | 'FAILED'
   | 'INTERVIEW_SCHEDULED'
   | 'INTERVIEWED'
   | 'OFFER'
   | 'REJECTED'
   | 'WITHDRAWN'
+
+export type ApplyMode = 'manual' | 'auto' | 'dry_run'
+
+export interface ApplyStartResult {
+  application_id: string
+  state: string
+  mode: ApplyMode
+  site: string
+}
+
+export interface ApplyStatusInfo {
+  application_id: string
+  running: boolean
+  parked: boolean
+  park_ttl_minutes: number
+  auto_submit_enabled: boolean
+  status?: string
+  needs_review_reason?: string
+  fields_remaining?: string[]
+  failure_reason?: string
+}
+
+export interface SiteCredentialHint {
+  site: string
+  configured: boolean
+  username_hint: string | null
+  updated_at: string | null
+}
+
+export interface CredentialsList {
+  encryption_configured: boolean
+  sites: SiteCredentialHint[]
+}
 
 export interface Application {
   id: string
@@ -327,6 +362,13 @@ export interface Application {
   submitted_at?: string
   interview_date?: string
   notes?: string
+  /** Why the bot parked this application for human review */
+  needs_review_reason?: string
+  /** Fields/questions the bot could not fill, for the reviewer to check */
+  fields_remaining?: string[]
+  /** Last automation failure message (never user notes) */
+  failure_reason?: string
+  screenshot_url?: string
   follow_up_date?: string
   external_application_id?: string
   created_at: string

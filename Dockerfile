@@ -44,6 +44,7 @@ RUN pip install --no-cache-dir \
     "openai>=1.0.0" \
     "python-socketio[asyncio]>=5.12.0" \
     "email-validator>=2.1.0" \
+    "cryptography>=42.0.0" \
     "python-jobspy>=1.1.0" && \
     python -c "import uvicorn; print('uvicorn OK:', uvicorn.__version__)" && \
     python -c "import fastapi; print('fastapi OK:', fastapi.__version__)"
@@ -54,8 +55,8 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p backend/data/master_resume backend/logs
 
-# Install Playwright browsers (if playwright is used)
-RUN python -m playwright install --with-deps chromium 2>/dev/null || true
+# Install Playwright browsers (required for auto-apply; do not swallow failures)
+RUN python -m playwright install --with-deps chromium
 
 # Run the API server using python -m uvicorn (not the bare uvicorn binary)
 # api.main:app loads backend/api/main.py — PYTHONPATH must include backend/

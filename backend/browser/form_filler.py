@@ -25,6 +25,20 @@ class FieldMapping:
     field_type: str = "text"  # text, email, phone, select, file, textarea, radio, checkbox
 
 
+def _work_auth_to_choice(value: Any) -> str:
+    """Collapse free-text work authorization ('Canadian citizen', 'PR',
+    'authorized to work') onto Yes/No for ATS selects. Returns the original
+    text when unsure — an unmatched select lands in fields_failed and gets
+    human review instead of a wrong guess."""
+    text = str(value or "").lower()
+    if "not" in text or text.startswith("no ") or "sponsorship" in text:
+        return "No"
+    if any(k in text for k in ("citizen", "permanent resident", " pr", "authorized",
+                               "eligible", "entitled", "yes", "can work")):
+        return "Yes"
+    return str(value or "")
+
+
 @dataclass
 class FormFillResult:
     """Result of form filling."""
@@ -185,6 +199,7 @@ class FormFiller:
                     "select[id*='work']",
                     "select[id*='visa']",
                 ],
+                transform=_work_auth_to_choice,
                 field_type="select",
             ),
             FieldMapping(
@@ -393,6 +408,12 @@ class FormFiller:
 
         for selector in mapping.form_selectors:
             try:
+                # Probe first — page.set_input_files waits out its full
+                # default timeout (30s) per absent selector, which turns a
+                # missing field into minutes of dead air.
+                element = await self.automation.page.query_selector(selector)
+                if not element:
+                    continue
                 success = await self.automation.upload_file(selector, str(path.absolute()))
                 if success:
                     result.fields_filled += 1

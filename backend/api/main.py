@@ -25,6 +25,8 @@ from api.routes.resumes import router as resumes_router
 from api.routes.applications import router as applications_router
 from api.routes.analytics import router as analytics_router
 from api.routes.settings import router as settings_router
+from api.routes.credentials import router as credentials_router
+from api.routes.mock_apply import router as mock_apply_router
 from api.dependencies import engine, async_session
 from database import models as db_models
 from sqlalchemy import select
@@ -85,6 +87,19 @@ async def lifespan(app: FastAPI):
                         "ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"
                     )
                 )
+                # Owner notes moved off error_message (which automation
+                # failures now own). One-time copy of legacy UI notes.
+                await conn.execute(
+                    text("ALTER TABLE applications ADD COLUMN IF NOT EXISTS notes TEXT")
+                )
+                await conn.execute(text(
+                    "UPDATE applications SET notes = error_message "
+                    "WHERE notes IS NULL AND error_message IS NOT NULL AND error_message <> ''"
+                ))
+                # discovery used to drop the apply link; backfill from canonical_url
+                await conn.execute(text(
+                    "UPDATE jobs SET application_url = canonical_url WHERE application_url IS NULL"
+                ))
                 # The INTERVIEWED application status was added later; native
                 # PG enum types are not altered by create_all(). Look up the
                 # actual enum type backing applications.status and extend it.
@@ -119,6 +134,18 @@ async def lifespan(app: FastAPI):
                     await conn.execute(
                         text("ALTER TABLE job_matches ADD COLUMN job_analysis JSON")
                     )
+                # applications.notes (owner notes moved off error_message)
+                result = await conn.execute(text("PRAGMA table_info(applications)"))
+                columns = [row[1] for row in result.fetchall()]
+                if "notes" not in columns:
+                    await conn.execute(text("ALTER TABLE applications ADD COLUMN notes TEXT"))
+                await conn.execute(text(
+                    "UPDATE applications SET notes = error_message "
+                    "WHERE notes IS NULL AND error_message IS NOT NULL AND error_message <> ''"
+                ))
+                await conn.execute(text(
+                    "UPDATE jobs SET application_url = canonical_url WHERE application_url IS NULL"
+                ))
     except Exception as e:
         logger.warning("Database connection failed during startup: %s", e)
         logger.warning("Tables will not be created until the database is reachable.")
@@ -208,6 +235,11 @@ app.include_router(resumes_router)
 app.include_router(applications_router)
 app.include_router(analytics_router)
 app.include_router(settings_router)
+app.include_router(credentials_router)
+
+# Local-only mock apply target for E2E tests (404s itself when the env flag
+# is absent, so mounting it unconditionally is safe).
+app.include_router(mock_apply_router)
 
 
 @app.get("/")

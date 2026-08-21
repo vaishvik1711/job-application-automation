@@ -179,13 +179,42 @@ class BrowserAutomation:
             return False
 
     async def select_option(self, selector: str, value: str) -> bool:
-        """Select an option from a dropdown."""
+        """Select an option from a dropdown.
+
+        Tries exact value, then visible label, then a case-insensitive
+        partial match over both — ATS selects routinely use terse values
+        ('yes'/'no') while profiles carry prose ('Canadian citizen').
+        """
+        for attempt in ({"value": value}, {"label": value}):
+            try:
+                await self._page.select_option(selector, **attempt)
+                return True
+            except Exception:
+                continue
         try:
-            await self._page.select_option(selector, value=value)
-            return True
+            matched = await self._page.eval_on_selector(
+                selector,
+                """(sel, wanted) => {
+                    const w = String(wanted).toLowerCase().trim();
+                    for (const opt of sel.options) {
+                        const hay = (opt.value + ' ' + opt.textContent).toLowerCase();
+                        if (!opt.value && !opt.textContent.trim()) continue;
+                        if (hay.includes(w) || (w.includes(opt.value.toLowerCase()) && opt.value)) {
+                            sel.value = opt.value;
+                            sel.dispatchEvent(new Event('change', { bubbles: true }));
+                            return true;
+                        }
+                    }
+                    return false;
+                }""",
+                value,
+            )
+            if matched:
+                return True
         except Exception as e:
-            logger.error(f"Failed to select option in {selector}: {e}")
-            return False
+            logger.debug(f"Fuzzy select failed on {selector}: {e}")
+        logger.error(f"Failed to select option in {selector}: no match for {value!r}")
+        return False
 
     async def upload_file(self, selector: str, file_path: str) -> bool:
         """Upload a file."""

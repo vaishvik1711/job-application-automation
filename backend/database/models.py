@@ -249,6 +249,10 @@ class Application(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     human_intervention_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fields_remaining: Mapped[List[str]] = mapped_column(JSON, default=list)
+    # Owner notes. Added after launch — api/main.py ALTER TABLEs it into
+    # existing deployments and copies over any legacy notes stored in
+    # error_message (which automation failures now own).
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # NOTE: the live Postgres schema was created by create_all() before these
     # columns existed on the model — api/main.py runs ALTER TABLE at startup
@@ -373,3 +377,22 @@ class MasterResume(Base):
     file_type: Mapped[str] = mapped_column(String(10), default="docx")  # docx | pdf
     file_data: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SiteCredential(Base):
+    """
+    Encrypted job-site login for auto-apply. `site` is one of the whitelisted
+    site keys from browser/sites/detect_site (jobbank | greenhouse | lever).
+
+    The password is Fernet-encrypted at rest with CREDENTIAL_ENCRYPTION_KEY.
+    No API endpoint ever returns password_encrypted or its plaintext.
+    """
+    __tablename__ = "site_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    site: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    password_encrypted: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extra: Mapped[dict] = mapped_column(JSON, default=dict)  # e.g. security answers, MFA hints
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

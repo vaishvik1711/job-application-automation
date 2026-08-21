@@ -120,6 +120,27 @@ async def emit_error(message: str, code: str = "websocket_error") -> None:
     await sio.emit("error", {"message": message, "code": code})
 
 
+async def emit_application_progress(
+    application_id: int,
+    stage: str,
+    message: str,
+    status: Optional[str] = None,
+    fields_remaining: Optional[list[str]] = None,
+) -> None:
+    """Broadcast an apply-run progress event (stages: started, login,
+    filling, screening, review, submitted, needs_review, failed, cancelled)."""
+    payload: dict[str, Any] = {
+        "application_id": str(application_id),
+        "stage": stage,
+        "message": message,
+    }
+    if status:
+        payload["status"] = status
+    if fields_remaining is not None:
+        payload["fields_remaining"] = fields_remaining
+    await sio.emit("application_progress", payload)
+
+
 def get_socketio_app(asgi_app: Any) -> socketio.ASGIApp:
     """
     Wrap an existing ASGI app (e.g. FastAPI) with the Socket.IO middleware.

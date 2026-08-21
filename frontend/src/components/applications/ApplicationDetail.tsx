@@ -9,19 +9,29 @@ import {
   Calendar,
   Clock,
   FileText,
-  ExternalLink,
+  Download,
   CheckCircle,
   Save,
   Edit3,
   Trash2,
+  Play,
+  Send,
+  Ban,
+  Camera,
+  AlertTriangle,
 } from 'lucide-react'
+import { useApplyToJob, useApplyStatus, useConfirmSubmit, useCancelApply } from '@/hooks/useApi'
+import api from '@/services/api'
 import { cn, formatDateTime, formatRelativeTime } from '@/utils/helpers'
+import { downloadResume } from '@/utils/download'
 import { toast } from 'sonner'
 
 const STATUS_OPTIONS: { value: ApplicationStatus; label: string }[] = [
   { value: 'READY_TO_APPLY', label: 'Ready to Apply' },
   { value: 'APPLYING', label: 'Applying' },
+  { value: 'NEEDS_REVIEW', label: 'Needs Review' },
   { value: 'SUBMITTED', label: 'Submitted' },
+  { value: 'FAILED', label: 'Failed' },
   { value: 'INTERVIEW_SCHEDULED', label: 'Interview Scheduled' },
   { value: 'INTERVIEWED', label: 'Interviewed' },
   { value: 'OFFER', label: 'Offer!' },
@@ -32,10 +42,12 @@ const STATUS_OPTIONS: { value: ApplicationStatus; label: string }[] = [
 const STATUS_COLORS: Record<ApplicationStatus, string> = {
   READY_TO_APPLY: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   APPLYING: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  NEEDS_REVIEW: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
   SUBMITTED: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
   INTERVIEW_SCHEDULED: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   INTERVIEWED: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   OFFER: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  FAILED: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
   REJECTED: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
   WITHDRAWN: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
 }
@@ -53,6 +65,17 @@ export function ApplicationDetail({ application, isOpen, onClose, onUpdateStatus
   const [notes, setNotes] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null)
+
+  const applyMutation = useApplyToJob()
+  const confirmMutation = useConfirmSubmit()
+  const cancelMutation = useCancelApply()
+  const isLiveApplication = !!application && isOpen
+
+  // Poll while the run is live; data includes running/parked flags + reasons.
+  const { data: liveStatus } = useApplyStatus(
+    isLiveApplication ? application!.id : null,
+  )
 
   // Re-sync local state whenever a different application is opened —
   // otherwise the modal shows the previous card's notes.
@@ -60,10 +83,63 @@ export function ApplicationDetail({ application, isOpen, onClose, onUpdateStatus
     if (application) {
       setNotes(application.notes || '')
       setIsEditing(false)
+      setScreenshotUrl(null)
     }
   }, [application])
 
   if (!application) return null
+
+  const statusRunning = !!liveStatus?.running
+  const statusParked = !!liveStatus?.parked
+  const canApplyNow =
+    (application.status === 'READY_TO_APPLY' || application.status === 'FAILED' || application.status === 'NEEDS_REVIEW') &&
+    !statusRunning &&
+    !statusParked
+
+  const handleApply = async () => {
+    try {
+      await applyMutation.mutateAsync({ id: application.id, mode: 'manual' })
+      toast.success('Bot started — it will fill the form and stop before submitting')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Could not start apply run')
+    }
+  }
+
+  const handleConfirmSubmit = async () => {
+    try {
+      const result = await confirmMutation.mutateAsync(application.id)
+      if (result.submitted) {
+        toast.success(`Submitted!${result.confirmation_number ? ` Confirmation ${result.confirmation_number}` : ''}`)
+        onClose()
+      } else {
+        toast.error(result.message || 'Submission could not be verified')
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Could not confirm submission')
+    }
+  }
+
+  const handleCancelRun = async () => {
+    try {
+      await cancelMutation.mutateAsync(application.id)
+      toast.info('Apply run cancelled')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Could not cancel')
+    }
+  }
+
+  const handleResolveReview = async () => {
+    await onUpdateStatus(application.id, 'READY_TO_APPLY', notes)
+  }
+
+  const loadScreenshot = async () => {
+    try {
+      const res = await api.get(application.screenshot_url || `/applications/${application.id}/screenshot`, { responseType: 'blob' })
+      setScreenshotUrl(URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'image/png' })))
+    } catch {
+      toast.error('No screenshot available yet')
+    }
+  }
 
   const handleSave = async () => {
     setIsSaving(true)
@@ -140,6 +216,86 @@ export function ApplicationDetail({ application, isOpen, onClose, onUpdateStatus
               Created {formatRelativeTime(application.created_at)}
             </span>
           </div>
+
+          {/* Auto-apply panel */}
+          <Card variant="outline">
+            <CardHeader>
+              <CardTitle className="text-sm font-semibold">Auto-Apply</CardTitle>
+              <CardDescription>
+                The bot fills the application headless and stops before submitting (manual mode).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(statusRunning || statusParked || application.status === 'APPLYING') && (
+                <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  {statusRunning ? 'Bot is filling the form right now…' : 'Form is filled and parked — review below, then Confirm Submit.'}
+                </div>
+              )}
+
+              {/* Review reason + remaining fields */}
+              {application.status === 'NEEDS_REVIEW' && application.needs_review_reason && (
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-200">
+                  <div className="flex items-center gap-2 font-medium">
+                    <AlertTriangle className="w-4 h-4" /> Needs your review
+                  </div>
+                  <p className="mt-1">{application.needs_review_reason}</p>
+                  {!!application.fields_remaining?.length && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {application.fields_remaining.map((f, i) => (
+                        <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700">
+                          {f}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {application.status === 'FAILED' && application.failure_reason && (
+                <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 text-sm text-red-900 dark:text-red-200">
+                  <div className="flex items-center gap-2 font-medium">
+                    <AlertTriangle className="w-4 h-4" /> Last run failed
+                  </div>
+                  <p className="mt-1">{application.failure_reason}</p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                {canApplyNow && (
+                  <Button size="sm" onClick={handleApply} loading={applyMutation.isPending}>
+                    <Play className="w-4 h-4 mr-2" /> Fill application (bot)
+                  </Button>
+                )}
+                {statusParked && (
+                  <Button size="sm" onClick={handleConfirmSubmit} loading={confirmMutation.isPending}>
+                    <Send className="w-4 h-4 mr-2" /> Confirm Submit
+                  </Button>
+                )}
+                {(statusRunning || statusParked) && (
+                  <Button variant="outline" size="sm" onClick={handleCancelRun} loading={cancelMutation.isPending}>
+                    <Ban className="w-4 h-4 mr-2" /> Cancel
+                  </Button>
+                )}
+                {application.status === 'NEEDS_REVIEW' && !statusParked && !statusRunning && (
+                  <Button variant="outline" size="sm" onClick={handleResolveReview}>
+                    <CheckCircle className="w-4 h-4 mr-2" /> Mark resolved
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={loadScreenshot}>
+                  <Camera className="w-4 h-4 mr-2" /> View screenshot
+                </Button>
+              </div>
+
+              {screenshotUrl && (
+                <img
+                  src={screenshotUrl}
+                  alt="Latest automation screenshot"
+                  className="rounded-lg border border-slate-200 dark:border-slate-700 max-h-96 w-auto"
+                />
+              )}
+            </CardContent>
+          </Card>
 
           {/* Timeline */}
           <Card variant="outline">
@@ -256,20 +412,16 @@ export function ApplicationDetail({ application, isOpen, onClose, onUpdateStatus
                       {application.resume.job_title} at {application.resume.company}
                     </p>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
-                      Format: {application.resume.format.toUpperCase()}
+                      Format: {application.resume.format?.toUpperCase?.() || 'DOCX'}
                     </p>
                   </div>
-                  {application.resume.file_url && /^https?:\/\//.test(application.resume.file_url) && (
-                    <a
-                      href={application.resume.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      aria-label="View resume"
-                    >
-                      <ExternalLink className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                    </a>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadResume(application.resume!.id, application.job?.title)}
+                  >
+                    <Download className="w-4 h-4 mr-2" /> Download
+                  </Button>
                 </div>
               </CardContent>
             </Card>
