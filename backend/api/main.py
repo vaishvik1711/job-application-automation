@@ -70,6 +70,34 @@ async def lifespan(app: FastAPI):
                         "ADD COLUMN IF NOT EXISTS job_analysis JSON"
                     )
                 )
+                # applications.created_at/updated_at were added to the model
+                # after the initial create_all() deployment — add them to
+                # existing tables.
+                await conn.execute(
+                    text(
+                        "ALTER TABLE applications "
+                        "ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"
+                    )
+                )
+                await conn.execute(
+                    text(
+                        "ALTER TABLE applications "
+                        "ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"
+                    )
+                )
+                # The INTERVIEWED application status was added later; native
+                # PG enum types are not altered by create_all(). Look up the
+                # actual enum type backing applications.status and extend it.
+                type_row = await conn.execute(text(
+                    "SELECT t.typname FROM pg_type t "
+                    "JOIN pg_attribute a ON a.atttypid = t.oid "
+                    "WHERE a.attrelid = 'applications'::regclass AND a.attname = 'status'"
+                ))
+                typname = type_row.scalar()
+                if typname:
+                    await conn.execute(
+                        text(f"ALTER TYPE {typname} ADD VALUE IF NOT EXISTS 'INTERVIEWED'")
+                    )
             elif dialect == "sqlite":
                 # SQLite doesn't support IF NOT EXISTS in ALTER TABLE
                 # Check if columns exist first
@@ -120,6 +148,44 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+class CatchAllErrorsMiddleware:
+    """Return a JSON 500 for unhandled exceptions instead of a bare text/plain
+    response. Registered BEFORE CORSMiddleware (so CORS wraps it) — without
+    this, error responses bypass CORS headers and browsers report the failure
+    as an opaque CORS block, hiding the real 500 from the frontend."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        started = False
+
+        async def send_wrapper(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception:
+            logger.exception("Unhandled exception in request")
+            from starlette.responses import JSONResponse
+
+            response = JSONResponse(
+                {"detail": "Internal Server Error"}, status_code=500
+            )
+            if not started:
+                await response(scope, receive, send)
+
+# NOTE: middleware added first ends up innermost — CORSMiddleware is added
+# after so it wraps this and stamps CORS headers onto error responses.
+app.add_middleware(CatchAllErrorsMiddleware)
 
 # CORS configuration
 app.add_middleware(

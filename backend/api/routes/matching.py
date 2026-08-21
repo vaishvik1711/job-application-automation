@@ -35,18 +35,27 @@ async def update_weights(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Update matching weights."""
+    if not isinstance(weights, dict):
+        raise HTTPException(status_code=400, detail="Body must be an object of weight values")
+    cleaned = {}
+    for key, value in (weights or {}).items():
+        try:
+            cleaned[key] = float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Weight {key!r} must be a number, got {value!r}")
+
     result = await session.execute(select(MatchingConfig))
     config = result.scalars().first()
 
     if not config:
-        config = MatchingConfig(default_weights=weights)
+        config = MatchingConfig(default_weights=cleaned)
         session.add(config)
     else:
-        config.default_weights = weights
+        config.default_weights = cleaned
 
     await session.flush()
 
-    return ApiResponse(data=weights)
+    return ApiResponse(data=cleaned)
 
 
 @router.get("/matching/threshold", response_model=ApiResponse)
@@ -68,16 +77,22 @@ async def update_threshold(
 ):
     """Update the auto-qualify threshold."""
     threshold = data.get("threshold", 75)
+    try:
+        threshold_f = float(threshold)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"threshold must be a number, got {threshold!r}")
+    if not 0 <= threshold_f <= 100:
+        raise HTTPException(status_code=400, detail="threshold must be between 0 and 100")
 
     result = await session.execute(select(MatchingConfig))
     config = result.scalars().first()
 
     if not config:
-        config = MatchingConfig(auto_qualify_threshold=float(threshold))
+        config = MatchingConfig(auto_qualify_threshold=threshold_f)
         session.add(config)
     else:
-        config.auto_qualify_threshold = float(threshold)
+        config.auto_qualify_threshold = threshold_f
 
     await session.flush()
 
-    return ApiResponse(data={"threshold": int(threshold)})
+    return ApiResponse(data={"threshold": threshold_f})

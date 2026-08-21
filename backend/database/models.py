@@ -6,7 +6,7 @@ from enum import Enum as PyEnum
 from typing import Optional, List
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Float, Boolean,
-    ForeignKey, Enum, Index, UniqueConstraint, JSON, Date, LargeBinary
+    ForeignKey, Enum, Index, UniqueConstraint, JSON, Date, LargeBinary, func
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from database.database import Base
@@ -42,6 +42,7 @@ class ApplicationStatus(PyEnum):
     FAILED = "failed"
     NEEDS_HUMAN_INPUT = "needs_human_input"
     INTERVIEW = "interview"
+    INTERVIEWED = "interviewed"
     REJECTED_BY_COMPANY = "rejected_by_company"
     OFFER = "offer"
     WITHDRAWN = "withdrawn"
@@ -248,6 +249,12 @@ class Application(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     human_intervention_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fields_remaining: Mapped[List[str]] = mapped_column(JSON, default=list)
+
+    # NOTE: the live Postgres schema was created by create_all() before these
+    # columns existed on the model — api/main.py runs ALTER TABLE at startup
+    # to add them to existing deployments.
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), nullable=True)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)
 
     candidate: Mapped["CandidateProfile"] = relationship("CandidateProfile", back_populates="applications")
     job: Mapped["Job"] = relationship("Job", back_populates="application")

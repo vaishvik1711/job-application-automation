@@ -1,9 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Application, ApplicationStatus } from '@/types'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
-import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Input'
 import {
   X,
@@ -51,10 +50,18 @@ interface ApplicationDetailProps {
 
 export function ApplicationDetail({ application, isOpen, onClose, onUpdateStatus, onDelete }: ApplicationDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
-  const [notes, setNotes] = useState(application?.notes || '')
-  const [followUpDate, setFollowUpDate] = useState(application?.follow_up_date || '')
+  const [notes, setNotes] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // Re-sync local state whenever a different application is opened —
+  // otherwise the modal shows the previous card's notes.
+  useEffect(() => {
+    if (application) {
+      setNotes(application.notes || '')
+      setIsEditing(false)
+    }
+  }, [application])
 
   if (!application) return null
 
@@ -112,8 +119,8 @@ export function ApplicationDetail({ application, isOpen, onClose, onUpdateStatus
         {/* Header */}
         <div className="sticky top-0 flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{application.job.title}</h2>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">{application.job.company}</p>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{application.job?.title || 'Unknown Role'}</h2>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">{application.job?.company || 'Unknown Company'}</p>
           </div>
           <button
             onClick={onClose}
@@ -252,7 +259,7 @@ export function ApplicationDetail({ application, isOpen, onClose, onUpdateStatus
                       Format: {application.resume.format.toUpperCase()}
                     </p>
                   </div>
-                  {application.resume.file_url && (
+                  {application.resume.file_url && /^https?:\/\//.test(application.resume.file_url) && (
                     <a
                       href={application.resume.file_url}
                       target="_blank"
@@ -268,19 +275,8 @@ export function ApplicationDetail({ application, isOpen, onClose, onUpdateStatus
             </Card>
           )}
 
-          {/* Follow-up Date */}
-          {isEditing && (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                Follow-up Date
-              </label>
-              <Input
-                type="date"
-                value={followUpDate}
-                onChange={(e) => setFollowUpDate(e.target.value)}
-              />
-            </div>
-          )}
+          {/* Follow-up date removed — the backend has no storage for it yet,
+              so the field silently discarded whatever the user entered. */}
 
           {/* Delete */}
           <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-700">

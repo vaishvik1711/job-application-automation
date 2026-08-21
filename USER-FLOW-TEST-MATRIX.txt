@@ -1,0 +1,297 @@
+================================================================================
+ USER-FLOW TEST MATRIX — AI Job Application Automation System
+ Generated: 2026-08-21
+ Frontend : https://job-application-automation.pages.dev (Cloudflare Pages)
+ Backend  : https://job-application-automation-production.up.railway.app (Railway)
+ Database : Supabase Postgres (wpxmeglujzglwpaxyisp)
+================================================================================
+
+LEGEND
+  [B]  = backend API test      [F] = frontend UI test
+  LIVE = safe to run against production
+  LOCAL= run only against local/scratch DB (creates or destroys data)
+
+================================================================================
+SECTION 1 — ROUTES / PAGES (frontend navigation permutations)
+================================================================================
+
+R1  GET /                -> redirects to /dashboard                        [F]
+R2  GET /dashboard       -> Dashboard page                                 [F]
+R3  GET /jobs            -> Jobs page                                      [F]
+R4  GET /applications    -> Applications kanban                            [F]
+R5  GET /settings        -> Settings page (gear icon, not in nav)          [F]
+R6  GET /profile         -> Profile page  *** ISSUE: no route defined,
+                            renders BLANK content area                     [F]
+R7  GET /login           -> 401 handler target *** ISSUE: route does not
+                            exist, blank page                              [F]
+R8  GET /job-search, /job-matching, /resume-builder, /analytics
+     -> legacy pages exist in code but are unrouted; live code still
+        navigates to them *** ISSUE                                       [F]
+R9  Unknown path e.g. /nonexistent -> SPA fallback shows layout with
+     empty content area *** ISSUE: no 404 page                            [F]
+
+Navigation permutations:
+N1  Dashboard -> Jobs (header "Search Jobs" btn)                           [F]
+N2  Dashboard -> Jobs (profile card "Find Matching Jobs")                  [F]
+N3  Any page -> any other nav item (Dashboard/Jobs/Applications)           [F]
+N4  Any page -> Settings via gear icon                                     [F]
+N5  Applications toast action "View Applications" after batch generate     [F]
+N6  Direct URL load of every route above (SPA _redirects fallback)         [F]
+N7  Sign Out button *** ISSUE: no onClick handler                          [F]
+N8  Notification bell *** ISSUE: no handler; unread dot is permanent       [F]
+
+================================================================================
+SECTION 2 — DASHBOARD PAGE (permutations of first-run vs returning user)
+================================================================================
+
+State A: NO profile in DB
+D-A1 Page shows resume upload dropzone                                        [F]
+D-A2 Upload PDF via drag&drop        -> POST /profile/upload                  [F][LIVE*]
+D-A3 Upload DOCX via browse          -> POST /profile/upload                  [F][LIVE*]
+D-A4 Upload unsupported file (.txt)  -> expect graceful error banner          [F][LIVE*]
+D-A5 Click Retry in upload error     -> re-POST /profile/upload               [F]
+D-A6 Click X on uploaded card        -> reset to dropzone                     [F]
+
+State B: profile exists (current prod state)
+D-B1 Stat cards show pipeline numbers <- GET /analytics/pipeline              [B][F]
+D-B2 Profile chip "Profile Ready" + name/email/skills <- GET /profile         [B][F]
+D-B3 Click Refresh                    -> refetch pipeline stats               [F]
+D-B4 Click "Search Jobs"              -> navigate /jobs                       [F]
+D-B5 Click "Find Matching Jobs"       -> navigate /jobs                       [F]
+D-B6 Pipeline endpoint failure -> stat cards silently show zeros
+     *** ISSUE: no error state                                                [F]
+
+================================================================================
+SECTION 3 — JOBS PAGE
+================================================================================
+
+J1  Initial load -> GET /jobs/matches?page_size=50 + GET /profile           [B][F]
+J2  Empty states: "No Profile Found" (no profile) vs "No Jobs Yet"
+    (profile, zero matches)                                                 [F]
+J3  Click Search Jobs -> POST /jobs/search {keywords from profile skills,
+    locations:[profile.location], job_types:[full_time,contract],
+    posted_within_days:30, sources:[jobbank], max_results_per_source:50}
+    then refetch matches after 2s                                           [B][F]
+J4  Search blocked with toast when no profile                               [F]
+J5  Click job card body  -> toggle selection                                [F]
+J6  Select All -> all match ids selected                                    [F]
+J7  Clear selection                                                         [F]
+J8  Generate & Apply (N) -> POST /resumes/batch-generate
+    {job_ids:[...], auto_apply:true} (300s timeout)                         [B][F]
+J9  Batch progress card counts succeeded/failed                             [F]
+J10 Toast "View Applications" action -> /applications                       [F]
+J11 Bookmark icon on card *** ISSUE: local state only, no persistence        [F]
+J12 External-link icon -> window.open(source_url)                            [F]
+J13 Matches query failure renders same as empty *** ISSUE: no error state    [F]
+
+/jobs/search parameter permutations [B]:
+S-P1 keywords as string (coerced to 1-elem list)      [LIVE small]
+S-P2 sources: indeed (silently stripped - Railway block)
+S-P3 sources: linkedin -> mapped to jobspy
+S-P4 sources: glassdoor/company_careers -> silently dropped *** ISSUE
+S-P5 max_results_per_source: 0 / negative / huge
+S-P6 filters omitted entirely (defaults {})
+
+================================================================================
+SECTION 4 — APPLICATIONS KANBAN (status transition permutation matrix)
+================================================================================
+
+Columns (frontend): READY_TO_APPLY | APPLYING | SUBMITTED |
+                    INTERVIEW_SCHEDULED | INTERVIEWED | OFFER | REJECTED |
+                    WITHDRAWN
+Backend enum values: discovered rejected qualified resume_created ready
+                     applying applied failed needs_human_input interview
+                     rejected_by_company offer withdrawn
+
+*** ISSUE: frontend column names never equal backend status values ->
+    even with a working list endpoint, no card lands in any column.
+*** ISSUE: PATCH /applications/{id} does AppStatusEnum(status.lower()):
+    "submitted", "interview_scheduled", "interviewed", "ready_to_apply"
+    raise ValueError -> 500.
+
+T1  Load board -> GET /applications?page=1&page_size=100                    [B][F]
+T2  Drag card between EVERY ordered pair of the 8 columns
+    (8x7 = 56 directed transitions) -> PATCH /applications/{id}             [B][F]
+T3  Drop onto another card (cross-column)                                   [F]
+T4  Same-column reorder -> no API call expected                             [F]
+T5  Optimistic move rollback on API failure                                 [F]
+T6  Click card -> detail modal opens                                        [F]
+T7  Modal: click each of 7 status buttons -> PATCH                          [F]
+T8  Modal: edit notes + Save Notes -> PATCH {notes}                         [B][F]
+    *** ISSUE: notes stored in error_message column; GET returns
+    notes:null so saved notes are never readable back
+T9  Modal: follow-up date input *** ISSUE: never sent anywhere              [F]
+T10 Modal: open card A then card B *** ISSUE: shows A's notes in B         [F]
+T11 Delete Application (confirm dialog) -> DELETE /applications/{id}       [B][F]
+T12 Refresh button -> refetch                                              [F]
+T13 New Application button *** ISSUE: no onClick, dead control             [F]
+T14 Render-phase setColumns during render *** ISSUE: potential loop        [F]
+
+Backend application endpoints [B]:
+A-P1 GET  /applications?status=<each backend value>
+A-P2 GET  /applications?page=0 / negative / huge page_size                 [LIVE read-only]
+A-P3 GET  /applications?sort_by=title (accepted but ignored) *** ISSUE
+A-P4 GET  /applications/bulk-status -> shadowed by {app_id} -> 500 **ISSUE
+A-P5 PATCH /applications/{id} {status:"ready_to_apply"} -> 500 **ISSUE
+A-P6 POST /applications missing keys -> KeyError 500 **ISSUE
+A-P7 POST /applications duplicate job_id -> IntegrityError 500 **ISSUE
+A-P8 DELETE /applications/{nonexistent} -> 404                             [LIVE]
+A-P9 GET  /applications/{nonexistent} -> 404                               [LIVE]
+A-P10 GET/POST/PATCH /applications with non-numeric id -> 500 not 422      [LIVE]
+
+================================================================================
+SECTION 5 — PROFILE
+================================================================================
+
+P1  GET /profile -> full profile shape                                      [B][F]
+P2  PATCH /profile partial update (personal_info only)                      [B]
+P3  PATCH /profile each tab payload: personal_info / skills /
+    experience / education / certifications / additional_experience         [B]
+P4  PATCH /profile creates profile when none exists (upsert)                [LOCAL]
+P5  PATCH /profile {} on fresh DB twice -> unique email="" crash **ISSUE
+P6  DELETE /profile -> cascading wipe (jobs, resumes, applications)         [LOCAL ONLY - destructive]
+P7  POST /profile -> 405, frontend has client method **ISSUE
+P8  personal_info.website/twitter/summary accepted but never persisted
+    -> vanish on next GET **ISSUE
+P9  POST /profile/upload multipart (pdf/docx/txt/no-file->422/
+    filename-with-../ **path traversal** )                                  [LIVE* pdf+docx]
+P10 POST /profile/parse {file_id} valid / missing ->422 / bogus ->404       [B]
+P11 POST /profile/generate-filters                                          [B]
+    *** ISSUE: returns 5 sources but /jobs/search only maps 3
+
+================================================================================
+SECTION 6 — RESUMES
+================================================================================
+
+M1  GET /resumes?page=1&page_size=50 -> library list                        [B][F]
+    *** ISSUE: frontend reads res.data.items, backend wraps ApiResponse
+    -> library ALWAYS empty in UI
+M2  GET /resumes/templates -> 500 **ISSUE shadowed by /{resume_id}
+M3  GET /resumes/{id} valid / nonexistent(404) / non-numeric(500)           [B][LIVE]
+M4  POST /resumes/generate {job_id} happy path (LLM, slow)                  [B][F]
+M5  POST /resumes/generate missing job_id -> KeyError 500 **ISSUE
+M6  POST /resumes/generate unknown job_id -> 404                            [B]
+M7  POST /resumes/generate customization options (template_id,
+    emphasize_skills, inject_keywords...) -> ALL silently ignored **ISSUE
+M8  POST /resumes/batch-generate [] -> immediate zeros                      [B]
+M9  POST /resumes/batch-generate [1 real id] auto_apply=false               [B][F]
+M10 batch-generate auto_apply=true (creates application rows)               [B][F]
+M11 batch-generate mixed valid+bogus ids -> per-item errors, HTTP 200       [B]
+M12 batch-generate max_concurrent>3 shared AsyncSession **CONCURRENCY RISK
+M13 GET /resumes/{id}/validate (LLM, mutates row on a GET) **ISSUE          [B]
+M14 GET /resumes/{id}/download?format=docx                                  [B][F]
+M15 GET /resumes/{id}/download?format=pdf -> serves DOCX bytes labeled
+    pdf **ISSUE                                                             [B]
+M16 download nonexistent id -> 404; file gone from disk -> 404              [B]
+M17 DELETE /resumes/{id} referenced by an application -> FK 500 **ISSUE     [LOCAL]
+M18 GET/PATCH /matching/weights                                             [B][restore after]
+M19 PATCH /matching/weights {"foo":"bar"} stored verbatim **ISSUE           [B][restore]
+M20 GET/PATCH /matching/threshold ("abc" -> 500 **ISSUE, out-of-range OK?)  [B][restore]
+
+================================================================================
+SECTION 7 — ANALYTICS / STATS
+================================================================================
+
+X1  GET /analytics/pipeline  (works - dashboard depends on it)              [B][F]
+X2  GET /analytics/overview   -> 500 **ISSUE (Application.created_at)       [B]
+X3  GET /analytics/sources    -> 2 fields only, conversion_rate missing     [B]
+X4  GET /analytics/skill-gaps -> hardcoded fake data **ISSUE                [B]
+X5  GET /analytics/timeseries?days=30 -> 500 **ISSUE                        [B]
+X6  GET /analytics/export -> JSON message w/ 200, frontend expects blob     [B]
+X7  GET /jobs/stats -> shape mismatch vs frontend type **ISSUE              [B]
+X8  Analytics Export PDF button -> toast only, no API call **ISSUE          [F]
+
+================================================================================
+SECTION 8 — SETTINGS
+================================================================================
+
+G1  GET /settings                                                           [B][F]
+G2  PATCH /settings each section alone: llm / job_sources / matching /
+    notifications                                                           [B][restore after]
+G3  Save All Settings button -> PATCH                                       [F]
+G4  Per-section "Save X Settings" buttons x4 *** ISSUE: fake success
+    toast, nothing sent                                                     [F]
+G5  Test Connection (LLM) -> POST /settings/test-llm                        [B]
+G6  test-llm bad api key -> success:false shape (extra `error` key)         [B]
+G7  Per-source Test Connection -> POST /settings/test-source
+    *** ISSUE: source declared as query param, frontend sends body -> 422
+G8  Toggle each of 5 job sources on/off                                     [F]
+G9  Matching weight sliders + threshold + min_skill_match                   [F]
+G10 Notifications email/webhook toggles + inputs                            [F]
+G11 Reload button                                                           [F]
+G12 GET returns 4 templates, PATCH response returns [] **ISSUE              [B]
+G13 llm.api_key echoed back in plaintext by GET **SECURITY                  [B]
+
+================================================================================
+SECTION 9 — INFRASTRUCTURE / CROSS-CUTTING
+================================================================================
+
+I1  GET /health                                                             [B][LIVE ok]
+I2  GET / -> 307 /health                                                    [B][LIVE ok]
+I3  GET /openapi.json -> 500 **ISSUE (response_class=None on export)        [B]
+I4  GET /docs -> broken by same **ISSUE                                     [B]
+I5  CORS preflight OPTIONS from pages.dev origin                            [B][LIVE ok]
+I6  CORS headers present on SUCCESS responses                               [B][LIVE ok]
+I7  CORS headers MISSING on 500 responses (browser reports CORS error)      [B][LIVE CONFIRMED]
+I8  Socket.IO connect (wss), badge Live/Connecting/Offline                  [F][LIVE ok]
+I9  WS events job_found/match_complete/resume_generated/progress never
+    emitted by backend **ISSUE (dead listeners)                             [B]
+I10 Every WS event produces TWO notifications (dispatch + provider) **ISSUE [F]
+I11 401 interceptor redirects to /login which doesn't exist **ISSUE         [F]
+I12 VITE_API_URL unset -> base "/api" -> everything 404s **ISSUE (dev)     [F]
+I13 Unhandled exceptions bypass CORS middleware -> add global handler      [B]
+
+================================================================================
+SECTION 10 — END-TO-END HAPPY PATH (the full user journey)
+================================================================================
+
+E1  Visit site -> Dashboard
+E2  Upload resume (PDF) -> parsed profile appears
+E3  Go to Jobs -> Search Jobs -> jobs appear with match scores
+E4  Select 2 jobs -> Generate & Apply -> resumes generated,
+    applications created (READY_TO_APPLY)
+E5  View Applications -> cards visible in Ready to Apply column
+E6  Drag one card to Submitted -> persisted after refresh
+E7  Open card -> edit notes -> save -> reload -> notes persist
+E8  Drag another to Rejected -> persists
+E9  Delete second application -> disappears, stays deleted after refresh
+E10 Settings -> change threshold -> save -> reload -> value persists
+
+================================================================================
+SECTION 11 — EXECUTION PLAN
+================================================================================
+
+Phase 1 [B] Live-safe backend probes (reads + restorable writes) -> results log
+Phase 2 [B] Local destructive tests (DELETE profile cascade, bulk-import,
+            FK deletes) against scratch SQLite DB
+Phase 3 Fix P0 issues (see below), redeploy, re-run Phase 1
+Phase 4 [F] Playwright pass over every route/action against fixed stack
+Phase 5 Final E2E happy path (Section 10)
+
+P0 FIX LIST (discovered during mapping):
+  F1  Application model missing created_at/updated_at (DB has them) -> all
+      /applications routes 500. Add columns to model; fix route references.
+  F2  Status vocabulary mismatch backend enum <-> frontend 8 statuses.
+      Add bidirectional mapping; extend PG enum if needed.
+  F3  /resumes/templates shadowed by /resumes/{resume_id} -> reorder routes.
+  F4  /applications/bulk-status shadowed by /applications/{app_id} -> reorder.
+  F5  Frontend useApplications/useResumes unwrap wrong envelope level.
+  F6  analytics overview + timeseries reference Application.created_at -> fix.
+  F7  openapi.json/docs 500 -> remove response_class=None on /jobs/export.
+  F8  /jobs/export format=excel TypeError (export_to_excel signature).
+  F9  settings test-source signature (source as query param) -> take from body.
+  F10 notes write/read mismatch (error_message) -> readable notes field.
+  F11 Kanban bucketing uses raw status equality -> use mapping (F2).
+  F12 Kanban render-phase setColumns -> useEffect; detail modal stale notes
+      -> resync on application change.
+  F13 Blank /profile page (route missing) -> mount Profile page + nav link;
+      redirect legacy paths (/job-search->/jobs etc).
+  F14 Settings per-section save buttons fake -> wire to PATCH /settings.
+  F15 New Application dead button -> remove.
+  F16 Sign Out / bell dead controls -> remove or implement.
+  F17 401 redirect to missing /login -> stop hard redirect.
+  F18 Security: filename sanitization on upload; allowlist for test-source
+      import; stop echoing api_key.
+  F19 Global exception handler so 500s keep CORS headers.
+  F20 matches verdict filter values vs advertised values alignment.
+================================================================================

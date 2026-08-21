@@ -52,9 +52,9 @@ api.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiError>) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized - redirect to login or refresh token
+      // The API has no auth yet; just clear any stale token. Hard-navigating
+      // to /login here blanked the whole app on any stray 401.
       localStorage.removeItem('auth_token')
-      window.location.href = '/login'
     }
     return Promise.reject(error)
   }
@@ -184,7 +184,7 @@ export const matchingApi = {
 // Resumes API
 export const resumesApi = {
   list: (params?: { page?: number; page_size?: number }) =>
-    api.get<PaginatedResponse<GeneratedResume>>('/resumes', { params }),
+    api.get<ApiResponse<PaginatedResponse<GeneratedResume>>>('/resumes', { params }),
 
   get: (id: string) => api.get<ApiResponse<GeneratedResume>>(`/resumes/${id}`),
 
@@ -215,7 +215,7 @@ export const applicationsApi = {
     status?: ApplicationStatus
     sort_by?: string
     sort_order?: 'asc' | 'desc'
-  }) => api.get<PaginatedResponse<Application>>('/applications', { params }),
+  }) => api.get<ApiResponse<PaginatedResponse<Application>>>('/applications', { params }),
 
   get: (id: string) => api.get<ApiResponse<Application>>(`/applications/${id}`),
 

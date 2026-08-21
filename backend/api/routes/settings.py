@@ -100,6 +100,8 @@ async def update_settings(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Update application settings."""
+    from api.routes.resumes import RESUME_TEMPLATES
+
     if "llm" in data:
         await _set_setting(session, "llm", data["llm"])
     if "job_sources" in data:
@@ -122,7 +124,9 @@ async def update_settings(
         "job_sources": job_sources,
         "matching": matching,
         "notifications": notifications,
-        "resume_templates": [],
+        # match GET /settings so clients replacing state from the PATCH
+        # response don't blank their template list
+        "resume_templates": RESUME_TEMPLATES,
     })
 
 
@@ -168,14 +172,37 @@ async def test_llm(
 
 @router.post("/settings/test-source", response_model=ApiResponse)
 async def test_job_source(
-    source: str,
-    config: dict,
+    body: Optional[dict] = None,
+    source: Optional[str] = None,
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Test a job source configuration."""
+    """Test a job source configuration.
+
+    Accepts the source/config either in the JSON body ({"source": ..., "config": ...})
+    — what the frontend sends — or as a ?source= query parameter.
+    """
+    import re
+    from fastapi.responses import JSONResponse
+
+    body = body or {}
+    src = body.get("source") or source
+    config = body.get("config") or {}
+
+    if not src:
+        raise HTTPException(status_code=400, detail="source is required (in body or query)")
+
+    # Only allow simple module-name characters — src is interpolated into an
+    # import below, so never accept paths or arbitrary identifiers.
+    if not re.fullmatch(r"[a-z_]+", str(src).lower()):
+        return ApiResponse(data={
+            "success": False,
+            "jobs_found": 0,
+            "error": f"Invalid job source name: {src}",
+        })
+
     try:
         # Try to import the source module
-        source_module = __import__(f"job_sources.{source.lower()}_source", fromlist=[source])
+        source_module = __import__(f"job_sources.{str(src).lower()}_source", fromlist=[src])
 
         if hasattr(source_module, "test_connection"):
             success, jobs_found = await source_module.test_connection(config)
@@ -192,5 +219,5 @@ async def test_job_source(
         return ApiResponse(data={
             "success": False,
             "jobs_found": 0,
-            "error": f"Unknown job source: {source}",
+            "error": f"Unknown job source: {src}",
         })

@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -13,6 +14,7 @@ import { AdditionalExperienceForm } from '@/components/profile/AdditionalExperie
 import { Upload, User, Sparkles, Briefcase, GraduationCap, Award, Star, CheckCircle, Trash2, AlertTriangle } from 'lucide-react'
 import { useProfileStore } from '@/store/index'
 import { useJobSearchStore } from '@/store/index'
+import { useProfile, queryKeys } from '@/hooks/useApi'
 import { updateProfile, generateJobFilters, deleteProfile } from '@/services/api'
 import { CandidateProfile } from '@/types'
 import { toast } from 'sonner'
@@ -31,8 +33,17 @@ type TabId = (typeof TABS)[number]['id']
 
 export function Profile() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { profile, setProfile, resumeUploading } = useProfileStore()
   const { setFilters } = useJobSearchStore()
+  // The store persists to localStorage, but a fresh browser (or another
+  // device) starts empty — hydrate from the server so the page isn't blank.
+  const { data: serverProfile } = useProfile()
+  useEffect(() => {
+    if (serverProfile && !profile) {
+      setProfile(serverProfile)
+    }
+  }, [serverProfile, profile, setProfile])
   const [activeTab, setActiveTab] = useState<TabId>('resume')
   const [savingTabs, setSavingTabs] = useState<Record<TabId, boolean>>({
     resume: false,
@@ -120,6 +131,9 @@ export function Profile() {
     try {
       await deleteProfile()
       setProfile(null)
+      // Drop the cached server profile too, or the hydration effect
+      // would immediately restore what we just deleted.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.profile })
       setShowClearConfirm(false)
       setActiveTab('resume')
       toast.success('Profile cleared')
@@ -127,7 +141,7 @@ export function Profile() {
       console.error('Failed to clear profile:', err)
       toast.error(err.response?.data?.detail || 'Failed to clear profile')
     }
-  }, [setProfile])
+  }, [setProfile, queryClient])
 
   const handleResumeComplete = useCallback(
     async (parsedProfile: any) => {

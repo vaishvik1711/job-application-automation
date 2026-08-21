@@ -161,13 +161,22 @@ async def list_jobs(
 ):
     """List jobs with pagination and filtering."""
     repos = RepositoryFactory(session)
+    page = max(1, page)
+    page_size = min(max(1, page_size), 200)
 
     query = select(Job).order_by(
         Job.discovered_at.desc() if sort_order == "desc" else Job.discovered_at.asc()
     )
 
     if status:
-        query = query.where(Job.status == status)
+        # Enum columns persist member names — compare against the member,
+        # not a raw string (a raw lowercase string crashes asyncpg).
+        try:
+            status_member = JobStatus[status.upper()]
+        except KeyError:
+            valid = ", ".join(m.value for m in JobStatus)
+            raise HTTPException(status_code=400, detail=f"Unknown status {status!r}. Valid: {valid}")
+        query = query.where(Job.status == status_member)
 
     if search:
         query = query.where(
@@ -182,7 +191,12 @@ async def list_jobs(
     # Count total
     count_query = select(func.count(Job.id))
     if status:
-        count_query = count_query.where(Job.status == status)
+        try:
+            status_member = JobStatus[status.upper()]
+        except KeyError:
+            valid = ", ".join(m.value for m in JobStatus)
+            raise HTTPException(status_code=400, detail=f"Unknown status {status!r}. Valid: {valid}")
+        count_query = count_query.where(Job.status == status_member)
     if search:
         count_query = count_query.where(
             func.lower(Job.title).contains(func.lower(search)) |
@@ -412,13 +426,18 @@ async def analyze_job(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Analyze a single job against the candidate profile and save the match."""
+    try:
+        numeric_job_id = int(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid job id: {job_id!r}")
+
     from agents.matching_agent import MatchingAgent
 
     agent = MatchingAgent()
-    result = await agent.match_jobs(job_ids=[int(job_id)])
+    result = await agent.match_jobs(job_ids=[numeric_job_id])
     if result.jobs_matched:
         # Load the match from DB
-        match_stmt = select(JobMatch).where(JobMatch.job_id == int(job_id)).limit(1)
+        match_stmt = select(JobMatch).where(JobMatch.job_id == numeric_job_id).limit(1)
         match_result = await session.execute(match_stmt)
         match = match_result.scalars().first()
         if match:
@@ -441,10 +460,15 @@ async def batch_analyze_jobs(
     if not job_ids:
         return ApiResponse(data={"matched": 0, "failed": 0, "total": 0})
 
+    try:
+        numeric_ids = [int(i) for i in job_ids]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="job_ids must be a list of integer ids")
+
     from agents.matching_agent import MatchingAgent
 
     agent = MatchingAgent()
-    result = await agent.match_jobs(job_ids=[int(id) for id in job_ids])
+    result = await agent.match_jobs(job_ids=numeric_ids)
 
     return ApiResponse(data={
         "matched": result.jobs_matched,
@@ -632,19 +656,27 @@ async def bulk_import_jobs(
     })
 
 
-@router.get("/jobs/export", response_class=BytesIO if False else None)
+@router.get("/jobs/export")
 async def export_jobs(
     job_ids: Optional[str] = None,
     format: str = "csv",
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Export jobs to CSV or Excel."""
+    """Export jobs to CSV or Excel.
+
+    NOTE: no response_class here — a non-Response response_class=None breaks
+    OpenAPI generation app-wide (/openapi.json and /docs 500).
+    """
     from excel import export_to_excel
 
-    ids = [int(id) for id in job_ids.split(",")] if job_ids else None
+    try:
+        ids = [int(id) for id in job_ids.split(",")] if job_ids else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="job_ids must be a comma-separated list of integers")
 
     if format == "excel":
-        file_path = await export_to_excel("/tmp/export.xlsx", job_ids=ids)
+        # export_to_excel exports all jobs; it takes only an output path
+        file_path = await export_to_excel("/tmp/export.xlsx")
         with open(file_path, "rb") as f:
             return StreamingResponse(
                 iter([f.read()]),
@@ -688,7 +720,11 @@ async def get_job(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get a single job by ID."""
-    job = await (RepositoryFactory(session).jobs.get_job(int(job_id)))
+    try:
+        numeric_id = int(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid job id: {job_id!r}")
+    job = await (RepositoryFactory(session).jobs.get_job(numeric_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 

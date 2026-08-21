@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -35,21 +36,41 @@ interface MatchingSettingsFormProps {
   onSave?: () => void
 }
 
+const FALLBACK_WEIGHTS: MatchWeights = { skills: 0.35, experience: 0.25, education: 0.15, location: 0.1, keywords: 0.15 }
+
+// The backend stores weights as whole-number percents (skills: 30) while this
+// form works in fractions (0.3) — its zod schema caps values at 1. Convert at
+// the boundary so saved settings validate instead of disabling Save forever.
+const toFractions = (w?: MatchWeights): MatchWeights => {
+  if (!w) return { ...FALLBACK_WEIGHTS }
+  const sum = Object.values(w).reduce((s, v) => s + (v || 0), 0)
+  if (sum <= 1.5) return { ...w }
+  return Object.fromEntries(Object.entries(w).map(([k, v]) => [k, (v || 0) / 100])) as unknown as MatchWeights
+}
+const toPercents = (w: MatchWeights): MatchWeights =>
+  Object.fromEntries(Object.entries(w).map(([k, v]) => [k, Math.round((v || 0) * 100)])) as unknown as MatchWeights
+
 export function MatchingSettingsForm({ settings, onChange, onSave }: MatchingSettingsFormProps) {
   const form = useForm<MatchingFormData>({
     resolver: zodResolver(MATCHING_SCHEMA),
     defaultValues: {
-      default_weights: settings?.default_weights || {
-        skills: 0.35,
-        experience: 0.25,
-        education: 0.15,
-        location: 0.1,
-        keywords: 0.15,
-      },
+      default_weights: toFractions(settings?.default_weights),
       auto_qualify_threshold: settings?.auto_qualify_threshold || 70,
       min_skill_match: settings?.min_skill_match || 60,
     },
   })
+
+  // Settings load async — re-sync the form once they arrive, since
+  // defaultValues only applies at mount.
+  useEffect(() => {
+    if (settings?.default_weights) {
+      form.reset({
+        default_weights: toFractions(settings.default_weights),
+        auto_qualify_threshold: settings.auto_qualify_threshold || 70,
+        min_skill_match: settings.min_skill_match || 60,
+      })
+    }
+  }, [settings])
 
   const weights = form.watch('default_weights')
   const totalWeight = Object.values(weights).reduce((sum, w) => sum + w, 0)
@@ -60,12 +81,12 @@ export function MatchingSettingsForm({ settings, onChange, onSave }: MatchingSet
     form.setValue(`default_weights.${key}` as any, newWeight)
 
     const newWeights = { ...weights, [key]: newWeight }
-    onChange?.({ default_weights: newWeights })
+    onChange?.({ default_weights: toPercents(newWeights) })
   }
 
   const handleSubmit = (data: MatchingFormData) => {
     onChange?.({
-      default_weights: data.default_weights,
+      default_weights: toPercents(data.default_weights),
       auto_qualify_threshold: data.auto_qualify_threshold,
       min_skill_match: data.min_skill_match,
     })
@@ -73,23 +94,11 @@ export function MatchingSettingsForm({ settings, onChange, onSave }: MatchingSet
   }
 
   const handleReset = () => {
-    form.setValue('default_weights', {
-      skills: 0.35,
-      experience: 0.25,
-      education: 0.15,
-      location: 0.1,
-      keywords: 0.15,
-    })
+    form.setValue('default_weights', FALLBACK_WEIGHTS)
     form.setValue('auto_qualify_threshold', 70)
     form.setValue('min_skill_match', 60)
     onChange?.({
-      default_weights: {
-        skills: 0.35,
-        experience: 0.25,
-        education: 0.15,
-        location: 0.1,
-        keywords: 0.15,
-      },
+      default_weights: toPercents(FALLBACK_WEIGHTS),
       auto_qualify_threshold: 70,
       min_skill_match: 60,
     })

@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -46,6 +47,25 @@ export function PersonalInfoForm({ initialData, onSave, isLoading }: PersonalInf
       summary: initialData?.summary || profile?.personal_info?.summary || '',
     },
   })
+
+  // Profile hydrates from the server after mount (fresh browser has an empty
+  // localStorage store) — re-sync the form when real data arrives, since
+  // defaultValues only applies at mount.
+  useEffect(() => {
+    const pi = initialData || profile?.personal_info
+    if (!pi) return
+    form.reset({
+      full_name: pi.full_name || '',
+      email: pi.email || '',
+      phone: pi.phone || '',
+      location: pi.location || '',
+      website: pi.website || '',
+      linkedin: pi.linkedin || '',
+      github: pi.github || '',
+      twitter: pi.twitter || '',
+      summary: pi.summary || '',
+    })
+  }, [initialData, profile?.personal_info])
 
   const handleSubmit = async (data: PersonalInfoFormData) => {
     await onSave(data)

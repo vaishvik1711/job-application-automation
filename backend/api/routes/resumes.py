@@ -1,6 +1,7 @@
 """Resumes API routes."""
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from api.schemas import (
@@ -91,6 +92,14 @@ async def list_resumes(
     })
 
 
+# NOTE: declared before /resumes/{resume_id} so "templates" is not
+# captured as a resume_id path parameter.
+@router.get("/resumes/templates", response_model=ApiResponse)
+async def get_templates():
+    """Get available resume templates."""
+    return ApiResponse(data={"templates": RESUME_TEMPLATES})
+
+
 @router.get("/resumes/{resume_id}", response_model=ApiResponse)
 async def get_resume(
     resume_id: str,
@@ -99,8 +108,13 @@ async def get_resume(
     """Get a single resume by ID."""
     from database.repositories import RepositoryFactory
 
+    try:
+        numeric_id = int(resume_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid resume id: {resume_id!r}")
+
     repo = RepositoryFactory(session)
-    resume = await repo.resumes.get_resume(int(resume_id))
+    resume = await repo.resumes.get_resume(numeric_id)
 
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -142,7 +156,12 @@ async def generate_resume(
     from database.models import Job
 
     logger.info(f"Generate resume called with options: {options}")
-    job_id = int(options["job_id"])
+    if not isinstance(options, dict) or "job_id" not in options:
+        raise HTTPException(status_code=400, detail="job_id is required")
+    try:
+        job_id = int(options["job_id"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"Invalid job_id: {options['job_id']!r}")
     logger.info(f"Looking for job_id: {job_id}")
 
     repo = RepositoryFactory(session)
@@ -390,6 +409,16 @@ async def validate_resume(
     import glob, os
     from resume.validator import ResumeValidator
 
+    try:
+        numeric_id = int(resume_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid resume id: {resume_id!r}")
+
+    # 404 up front so a bogus id doesn't reach the LLM validator
+    existing = await session.scalar(select(Resume).where(Resume.id == numeric_id))
+    if not existing:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
     # Find the user's uploaded resume
     resume_dir = "data/master_resume"
     resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
@@ -461,8 +490,13 @@ async def download_resume(
     from database.repositories import RepositoryFactory
     from fastapi.responses import FileResponse
 
+    try:
+        numeric_id = int(resume_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid resume id: {resume_id!r}")
+
     repo = RepositoryFactory(session)
-    resume = await repo.resumes.get_resume(int(resume_id))
+    resume = await repo.resumes.get_resume(numeric_id)
 
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
@@ -476,11 +510,12 @@ async def download_resume(
         logger.error(f"Resume file not found at path: {file_path}")
         raise HTTPException(status_code=404, detail="Resume file not found on disk")
 
+    # Only DOCX files exist — serve honest bytes/mime instead of relabeling
+    # a DOCX as a PDF when ?format=pdf is requested.
     return FileResponse(
         path=file_path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        if format == "docx" else "application/pdf",
-        filename=f"resume_{resume.id}.{format}",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"resume_{resume.id}.docx",
     )
 
 
@@ -492,14 +527,25 @@ async def delete_resume(
     """Delete a resume."""
     from database.repositories import RepositoryFactory
 
+    try:
+        numeric_id = int(resume_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid resume id: {resume_id!r}")
+
     repo = RepositoryFactory(session)
-    resume = await repo.resumes.get_resume(int(resume_id))
+    resume = await repo.resumes.get_resume(numeric_id)
 
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
-    await session.delete(resume)
-    await session.flush()
+    try:
+        await session.delete(resume)
+        await session.flush()
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="Resume is referenced by an application and cannot be deleted",
+        )
 
     return ApiResponse(data={"success": True})
 

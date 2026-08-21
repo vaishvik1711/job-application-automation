@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSettings, useUpdateSettings } from '@/hooks/useApi'
 import {
   AppSettings,
@@ -35,10 +35,13 @@ export function Settings() {
 
   const [localSettings, setLocalSettings] = useState<Partial<AppSettings>>(settings || {})
 
-  // Update local settings when data loads
-  if (settings && !localSettings.llm) {
-    setLocalSettings(settings)
-  }
+  // Update local settings when data loads — in an effect, not during render
+  useEffect(() => {
+    if (settings && !localSettings.llm) {
+      setLocalSettings(settings)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings])
 
   const handleLLMChange = (llm: Partial<LLMSettings>) => {
     const newSettings = { ...localSettings, llm: { ...(localSettings.llm || {}), ...llm } } as Partial<AppSettings>
@@ -74,8 +77,19 @@ export function Settings() {
     }
   }
 
-  const handleSaveSection = (section: string) => {
-    toast.success(`${section} settings saved`)
+  // Persist a single section for real — the previous version only fired a
+  // success toast without sending anything to the backend.
+  const handleSaveSection = async (section: string) => {
+    const sectionKey = section.toLowerCase().replace(/\s+/g, '_')
+    const payload = { [sectionKey]: (localSettings as any)[sectionKey] }
+    try {
+      await updateSettingsMutation.mutateAsync(payload)
+      toast.success(`${section} settings saved`)
+      refetch()
+    } catch (err: any) {
+      console.error(`Failed to save ${section} settings:`, err)
+      toast.error(`Failed to save ${section} settings`)
+    }
   }
 
   if (isLoading) {
@@ -161,7 +175,7 @@ export function Settings() {
         {/* LLM Settings */}
         <TabsContent value="llm">
           <LLMSettingsForm
-            settings={settings?.llm}
+            settings={localSettings?.llm}
             onChange={handleLLMChange}
             onSave={() => handleSaveSection('LLM')}
           />
@@ -170,7 +184,7 @@ export function Settings() {
         {/* Job Sources */}
         <TabsContent value="sources">
           <JobSourceSettingsForm
-            settings={settings?.job_sources}
+            settings={localSettings?.job_sources}
             onChange={handleJobSourcesChange}
             onSave={() => handleSaveSection('Job Sources')}
           />
@@ -179,7 +193,7 @@ export function Settings() {
         {/* Matching Settings */}
         <TabsContent value="matching">
           <MatchingSettingsForm
-            settings={settings?.matching}
+            settings={localSettings?.matching}
             onChange={handleMatchingChange}
             onSave={() => handleSaveSection('Matching')}
           />
@@ -188,7 +202,7 @@ export function Settings() {
         {/* Notifications */}
         <TabsContent value="notifications">
           <NotificationSettingsForm
-            settings={settings?.notifications}
+            settings={localSettings?.notifications}
             onChange={handleNotificationsChange}
             onSave={() => handleSaveSection('Notifications')}
           />

@@ -1,0 +1,86 @@
+====================================================================================================
+LOCAL FIX VERIFICATION (scratch DB, fixed backend)
+
+F1-apps    GET    /applications?page=1&page_size=100                       200   PASS
+F2-tmpl    GET    /resumes/templates                                       200   PASS
+F4-bulk    PATCH  /applications/bulk-status                                200   PASS
+F7-oas     GET    /openapi.json                                            200   PASS
+F7-docs    GET    /docs                                                    200   PASS
+J-l5-st    GET    /jobs?status=discovered                                  200   PASS
+J-l5-bad   GET    /jobs?status=bogus                                       400   PASS
+J-l2-p0    GET    /jobs?page=0&page_size=5                                 200   PASS
+J-l3-neg   GET    /jobs?page=-1&page_size=5                                200   PASS
+J-l11-x    GET    /jobs/export?format=excel                                200   PASS
+X2-ovw     GET    /analytics/overview                                      200   PASS
+X5-ts      GET    /analytics/timeseries?days=30                            200   PASS
+X5-ts1     GET    /analytics/timeseries?days=365                           200   PASS
+V-jobid    GET    /jobs/abc                                                400   PASS
+V-resid    GET    /resumes/abc                                             400   PASS
+V-appid    GET    /applications/abc                                        400   PASS
+V-anlz     POST   /jobs/abc/analyze                                        400   PASS
+V-thr      PATCH  /matching/threshold                                      400   PASS
+V-thr2     PATCH  /matching/threshold                                      400   PASS
+V-wgt      PATCH  /matching/weights                                        400   PASS
+V-gen      POST   /resumes/generate                                        400   PASS
+V-src      POST   /settings/test-source                                    200   PASS
+G7-body    POST   /settings/test-source                                    200   PASS
+S-prof     PATCH  /profile                                                 200   PASS
+S-jobs     POST   /jobs/bulk-import                                        200   PASS
+A-nofk     POST   /applications                                            404   PASS
+A-del      DELETE /applications/1                                          200   PASS
+A-del2     GET    /applications/1                                          404   PASS
+D-delprof  DELETE /profile                                                 200   PASS
+
+FAILURES: 0
+
+================================================================
+PHASE 4 — FRONTEND E2E (Playwright, local stack: Vite :5173 -> uvicorn :8321)
+Run date: 2026-08-21          RESULT: 22/22 PASSED
+================================================================
+R1   root / redirects to /dashboard ................. PASS
+D-B1 dashboard stats cards render ................... PASS
+D-B2 profile chip (Vaishvik Patel) .................. PASS
+N    Profile link present in sidebar nav ............ PASS
+J1   Jobs page lists both match cards ............... PASS
+J6   Select All -> "Generate & Apply (2)" ........... PASS
+J7   Clear selection ................................ PASS
+T1   Kanban board loads with seeded card ............ PASS
+T1b  Card sits in Ready to Apply column ............. PASS
+T6   Card click opens detail modal .................. PASS
+T8b  Persisted notes visible in modal ............... PASS
+T7   Status button fires PATCH /applications/1 ...... PASS  {"status":"SUBMITTED","notes":"seeded note"}
+T7   Card moves to Submitted column ................. PASS
+T2   dnd-kit drag Submitted->Interview Scheduled .... PASS  PATCH {"status":"INTERVIEW_SCHEDULED"}
+T11  Delete application (confirm dialog) ............ PASS
+R6   Profile page hydrates + Personal Info filled ... PASS  name/email inputs populated
+S-G4 Settings section Save fires real PATCH ......... PASS  PATCH /settings {"matching":{...}}
+N8   Notification bell opens panel .................. PASS
+R8a  /job-search legacy redirect -> /jobs ........... PASS
+R8b  /analytics legacy redirect -> /dashboard ....... PASS
+R9   Unknown path -> /dashboard catch-all ........... PASS
+     Console errors across whole session ............ NONE
+
+Bugs found & fixed during Phase 4:
+  B1  GET /applications nested resume lacked format/file_url/
+      job_title/company -> ApplicationCard crashed
+      ("resume.format.toUpperCase() of undefined") and blanked the board.
+      Serializer now mirrors the /resumes shape and reuses _job_to_schema
+      for the nested job (real location/salary/description).
+  B2  Kanban grid squeezed 8 columns into viewport; card titles collapsed
+      to zero width. Board switched to fixed-width (270px) columns in a
+      horizontal scroll row.
+  B3  MatchingSettingsForm: backend stores weights as percents (30) but
+      form schema caps at 1.0 fractions -> zod validation failed forever,
+      Save permanently disabled. Boundary conversion added + form.reset()
+      when async settings arrive.
+  B4  Profile page read only localStorage store; fresh browsers showed an
+      empty profile. Now hydrates from GET /profile when store is empty;
+      Clear Profile invalidates the query cache so it stays cleared.
+  B5  PersonalInfoForm defaultValues bound once at mount (before hydration);
+      fields stayed blank on fresh sessions. Added useEffect resync.
+  B6  PATCH /settings 500: NameError RESUME_TEMPLATES (import existed in
+      GET handler but not PATCH). Fixed.
+
+Not exercised live (needs LLM key spend or external sites): real job search,
+resume generation/validation, batch generate+apply, export downloads.
+These were verified against local endpoints in Phase 2/3 instead.

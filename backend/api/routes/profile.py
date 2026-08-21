@@ -469,7 +469,15 @@ async def upload_resume(
 ):
     """Upload a resume file (stores to Supabase Storage if configured, parses locally either way)."""
     file_content = await file.read()
-    file_id = f"resumes/{uuid4()}_{file.filename}"
+
+    # Sanitize the filename — never trust it for filesystem paths
+    import os as _os
+    raw_name = (file.filename or "").replace("\\", "/")
+    safe_name = _os.path.basename(raw_name).strip()
+    if not safe_name or ".." in safe_name:
+        safe_name = safe_name.replace("..", "_").strip("._ ") or "resume.docx"
+
+    file_id = f"resumes/{uuid4()}_{safe_name}"
     file_url = ""
 
     # Upload to Supabase Storage (optional — gracefully fall back for local dev)
@@ -506,7 +514,7 @@ async def upload_resume(
     # Save a copy locally for resume generation to use as the template
     import os
     os.makedirs("data/master_resume", exist_ok=True)
-    local_path = f"data/master_resume/{file.filename}"
+    local_path = f"data/master_resume/{safe_name}"
     with open(local_path, "wb") as f:
         f.write(file_content)
 
@@ -515,8 +523,8 @@ async def upload_resume(
     # unavailable). Single-candidate app: replace any previous master resume.
     try:
         await session.execute(sa_delete(MasterResume))
-        ext = os.path.splitext(file.filename or "")[1].lstrip(".").lower() or "docx"
-        session.add(MasterResume(filename=file.filename, file_type=ext, file_data=file_content))
+        ext = os.path.splitext(safe_name)[1].lstrip(".").lower() or "docx"
+        session.add(MasterResume(filename=safe_name, file_type=ext, file_data=file_content))
         await session.commit()
         logger.info("Master resume persisted to DB (%s, %d bytes)", file.filename, len(file_content))
     except Exception as e:
@@ -524,7 +532,7 @@ async def upload_resume(
 
     return ApiResponse(data={
         "file_id": file_id,
-        "filename": file.filename,
+        "filename": safe_name,
         "size": len(file_content),
         "url": file_url,
         "profile": profile_data,

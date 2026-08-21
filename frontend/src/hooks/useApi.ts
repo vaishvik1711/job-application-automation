@@ -171,7 +171,7 @@ export function useUpdateMatchingThreshold() {
 export function useResumes(params?: { page?: number; page_size?: number }) {
   return useQuery({
     queryKey: queryKeys.resumes(params),
-    queryFn: () => resumesApi.list(params).then((res) => res.data),
+    queryFn: () => resumesApi.list(params).then((res) => res.data.data),
   })
 }
 
@@ -229,7 +229,7 @@ export function useResumeTemplates() {
 export function useApplications(params?: { page?: number; page_size?: number; status?: ApplicationStatus }) {
   return useQuery({
     queryKey: queryKeys.applications(params),
-    queryFn: () => applicationsApi.list(params).then((res) => res.data),
+    queryFn: () => applicationsApi.list(params).then((res) => res.data.data),
   })
 }
 

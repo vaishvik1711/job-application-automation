@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   DndContext,
   useDraggable,
@@ -21,7 +21,6 @@ import { Button } from '@/components/ui/Button'
 import { cn } from '@/utils/helpers'
 import {
   RefreshCw,
-  Plus,
   Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -99,7 +98,7 @@ function DroppableColumn({ status, children }: {
 }) {
   const { setNodeRef } = useDroppable({ id: `column-${status}` })
   return (
-    <div ref={setNodeRef} className={cn('flex-1 min-w-[180px]', COLUMN_BG_COLORS[status], 'rounded-lg')}>
+    <div ref={setNodeRef} className={cn('w-[270px] flex-shrink-0', COLUMN_BG_COLORS[status], 'rounded-lg')}>
       {children}
     </div>
   )
@@ -132,17 +131,18 @@ export function ApplicationKanban() {
     return map
   }, [applications])
 
-  // Sync store columns with API data on initial load
-  const totalInStore = Object.values(columns).flat().length
-  if (applications.length > 0 && totalInStore !== applications.length) {
-    const newColumns = { ...columns }
+  // Sync store columns with API data when the server list changes.
+  // Runs in an effect — writing to the store during render can loop.
+  useEffect(() => {
+    if (applications.length === 0) return
+    const newColumns = {} as Record<ApplicationStatus, string[]>
     COLUMN_ORDER.forEach((status) => {
       newColumns[status] = applications
         .filter((app) => app.status === status)
         .map((app) => app.id)
     })
     setColumns(newColumns)
-  }
+  }, [applications, setColumns])
 
   const getColumnApplications = (status: ApplicationStatus): Application[] => {
     const ids = columns[status] || []
@@ -248,9 +248,6 @@ export function ApplicationKanban() {
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button size="sm">
-            <Plus className="w-4 h-4 mr-2" /> New Application
-          </Button>
         </div>
       </div>
 
@@ -282,14 +279,16 @@ export function ApplicationKanban() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4 overflow-x-auto pb-2">
+          {/* Fixed-width columns in a scrollable row — an 8-col grid squeezes
+              cards below readable width on smaller screens. */}
+          <div className="flex gap-4 items-start overflow-x-auto pb-2">
             {COLUMN_ORDER.map((status) => {
               const columnApps = getColumnApplications(status)
               return (
                 <DroppableColumn key={status} status={status}>
                   <Card
                     className={cn(
-                      'min-w-[180px] border-2 rounded-lg',
+                      'w-full border-2 rounded-lg',
                       COLUMN_BG_COLORS[status],
                       COLUMN_BORDER_COLORS[status],
                       'transition-colors'

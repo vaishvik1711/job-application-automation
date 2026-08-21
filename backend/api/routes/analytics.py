@@ -74,29 +74,23 @@ async def get_overview(session: AsyncSession = Depends(get_db_session)):
         }
     ]
 
-    # Applications over time
-    result = await session.execute(
-        select(
-            func.date_trunc('day', Application.created_at).label('date'),
-            func.count(Application.id).label('count')
-        ).group_by('date').order_by('date').limit(30)
-    )
-    applications_over_time = [
-        {
-            "date": row.date.strftime("%Y-%m-%d") if row.date else "",
-            "applications": row.count,
-            "interviews": 0,
-            "offers": 0,
-        }
-        for row in result
-    ]
+    # Applications over time — bucketed in Python so this works on both
+    # PostgreSQL and SQLite (date_trunc is PG-only).
+    result = await session.execute(select(Application.applied_at))
+    daily_counts = {}
+    for (applied_at,) in result:
+        if applied_at:
+            key = applied_at.strftime("%Y-%m-%d")
+            daily_counts[key] = daily_counts.get(key, 0) + 1
+    applications_over_time = _build_daily_series(daily_counts, days=30)
 
     # Match score distribution
+    score_bucket = func.round(JobMatch.match_score / 10) * 10
     result = await session.execute(
         select(
-            func.round(JobMatch.match_score / 10) * 10,
+            score_bucket,
             func.count(JobMatch.id)
-        ).group_by(1).order_by(1)
+        ).group_by(score_bucket).order_by(score_bucket)
     )
     match_score_distribution = [
         {
@@ -177,28 +171,38 @@ async def get_skill_gaps(session: AsyncSession = Depends(get_db_session)):
     ])
 
 
+def _build_daily_series(daily_counts: dict, days: int) -> list:
+    """Fill a zero-padded day series ending today from a {YYYY-MM-DD: count} map."""
+    from datetime import datetime, timedelta
+
+    series = []
+    for offset in range(days - 1, -1, -1):
+        day = (datetime.utcnow() - timedelta(days=offset)).strftime("%Y-%m-%d")
+        series.append({
+            "date": day,
+            "applications": daily_counts.get(day, 0),
+            "interviews": 0,
+            "offers": 0,
+        })
+    return series
+
+
 @router.get("/analytics/timeseries", response_model=ApiResponse)
 async def get_timeseries(
     days: int = 30,
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get time series data for applications."""
-    result = await session.execute(
-        select(
-            func.date_trunc('day', Application.created_at).label('date'),
-            func.count(Application.id).label('count')
-        ).group_by('date').order_by('date').limit(days)
-    )
+    days = min(max(1, days), 365)
 
-    return ApiResponse(data=[
-        {
-            "date": row.date.strftime("%Y-%m-%d") if row.date else "",
-            "applications": row.count,
-            "interviews": 0,
-            "offers": 0,
-        }
-        for row in result
-    ])
+    result = await session.execute(select(Application.applied_at))
+    daily_counts = {}
+    for (applied_at,) in result:
+        if applied_at:
+            key = applied_at.strftime("%Y-%m-%d")
+            daily_counts[key] = daily_counts.get(key, 0) + 1
+
+    return ApiResponse(data=_build_daily_series(daily_counts, days=days))
 
 
 @router.get("/analytics/export")

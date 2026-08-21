@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useUIStore } from '@/store'
 import {
@@ -10,7 +11,7 @@ import {
   Bell,
   Moon,
   Sun,
-  LogOut,
+  User,
   Target,
 } from 'lucide-react'
 import { cn } from '@/utils/helpers'
@@ -20,10 +21,12 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Jobs', href: '/jobs', icon: Search },
   { name: 'Applications', href: '/applications', icon: Kanban },
+  { name: 'Profile', href: '/profile', icon: User },
 ] as const
 
 export function Layout() {
-  const { sidebarOpen, toggleSidebar, theme, setTheme } = useUIStore()
+  const { sidebarOpen, toggleSidebar, theme, setTheme, notifications, removeNotification } = useUIStore()
+  const [showNotifications, setShowNotifications] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -95,11 +98,6 @@ export function Layout() {
             >
               {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
-            {sidebarOpen && (
-              <button className="flex-1 ml-2 px-3 py-2 text-left text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
-                <LogOut className="w-4 h-4 inline mr-2" /> Sign Out
-              </button>
-            )}
           </div>
         </div>
       </aside>
@@ -128,10 +126,56 @@ export function Layout() {
               >
                 <Settings className="w-5 h-5 text-slate-600 dark:text-slate-400" />
               </button>
-              <button className="relative p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                <Bell className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-danger-500 rounded-full" />
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setShowNotifications((v) => !v)}
+                  className="relative p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  aria-label={`Notifications (${notifications.length} unread)`}
+                >
+                  <Bell className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                  {notifications.length > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-danger-500 rounded-full" />
+                  )}
+                </button>
+                {showNotifications && (
+                  <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50">
+                    <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white">Notifications</span>
+                      <button
+                        onClick={() => setShowNotifications(false)}
+                        className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    {notifications.length === 0 ? (
+                      <p className="px-4 py-6 text-sm text-center text-slate-500 dark:text-slate-400">
+                        No notifications yet
+                      </p>
+                    ) : (
+                      notifications.slice().reverse().map((n) => (
+                        <button
+                          key={n.id}
+                          onClick={() => removeNotification(n.id)}
+                          className="w-full text-left px-4 py-3 border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                          title="Click to dismiss"
+                        >
+                          <span
+                            className={cn(
+                              'inline-block w-2 h-2 rounded-full mr-2',
+                              n.type === 'success' && 'bg-green-500',
+                              n.type === 'error' && 'bg-red-500',
+                              n.type === 'warning' && 'bg-amber-500',
+                              n.type === 'info' && 'bg-blue-500',
+                            )}
+                          />
+                          <span className="text-sm text-slate-700 dark:text-slate-300">{n.message}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="w-8 h-8 rounded-full bg-primary-500 flex items-center justify-center text-white font-medium">
                 JA
               </div>

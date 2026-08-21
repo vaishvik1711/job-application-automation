@@ -30,10 +30,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    // Load environment variables from .env file
-    define: {
-      'process.env': process.env,
-    },
+  },
+  // Load environment variables from .env file (must be top-level —
+  // Vite ignores `define` nested inside `server`)
+  define: {
+    'process.env': process.env,
   },
   build: {
     outDir: 'dist',
