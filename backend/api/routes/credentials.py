@@ -30,16 +30,18 @@ router = APIRouter()
 ALLOWED_SITES = ("jobbank", "greenhouse", "lever")
 
 
-def _credential_hint(cred: Optional[SiteCredential]) -> dict:
+def _credential_hint(site: str, cred: Optional[SiteCredential]) -> dict:
+    """Masked display shape for one site. `site` always wins over anything
+    derived from the (possibly absent) DB row."""
     if cred is None:
         return {
-            "site": "",
+            "site": site,
             "configured": False,
             "username_hint": None,
             "updated_at": None,
         }
     return {
-        "site": cred.site,
+        "site": site,
         "configured": bool(cred.password_encrypted),
         "username_hint": mask_username(cred.username) if cred.username else None,
         # NOTE: password_encrypted is deliberately never serialized.
@@ -54,10 +56,7 @@ async def list_credentials(session: AsyncSession = Depends(get_db_session)):
     creds = {c.site: c for c in result.scalars().all()}
     return ApiResponse(data={
         "encryption_configured": encryption_configured(),
-        "sites": [
-            {"site": site, **_credential_hint(creds.get(site))}
-            for site in ALLOWED_SITES
-        ],
+        "sites": [_credential_hint(site, creds.get(site)) for site in ALLOWED_SITES],
     })
 
 
@@ -101,7 +100,7 @@ async def save_credentials(
 
     await session.flush()
     logger.info("Credential stored for site=%s (password never logged)", site)
-    return ApiResponse(data=_credential_hint(cred), message="Credentials saved")
+    return ApiResponse(data=_credential_hint(site, cred), message="Credentials saved")
 
 
 @router.delete("/settings/credentials/{site}", response_model=ApiResponse)

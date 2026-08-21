@@ -225,6 +225,9 @@ def main():
             body_text += api("GET", path).text
         check("password never in responses", secret_pw not in body_text, "secret leaked in GET response")
         creds = api("GET", "/settings/credentials").json()["data"]
+        site_names = [s["site"] for s in creds["sites"]]
+        check("sites list carries names", all(site_names) and set(site_names) >= {"jobbank", "greenhouse", "lever"},
+              str(site_names))
         jobbank = next((s for s in creds["sites"] if s["site"] == "jobbank"), {})
         check("jobbank configured", jobbank.get("configured") is True, str(jobbank))
         hint = jobbank.get("username_hint") or ""
