@@ -84,3 +84,33 @@ Bugs found & fixed during Phase 4:
 Not exercised live (needs LLM key spend or external sites): real job search,
 resume generation/validation, batch generate+apply, export downloads.
 These were verified against local endpoints in Phase 2/3 instead.
+
+================================================================
+PHASE 5 — POST-DEPLOY VERIFICATION (production, 2026-08-21)
+Commit 535f36e pushed to main -> Railway redeploy + Cloudflare Pages
+auto-build, both confirmed live.
+================================================================
+Backend probes (read-only / zero-mutation): 25/25 PASS
+  /health, /applications (200 + full nested resume/job shape),
+  page clamps, status filter mapping (+400 on garbage), int guards,
+  bulk-status route order, /resumes/templates unshadowed, jobs export
+  csv+excel real bytes (24KB/48KB), OpenAPI + /docs healthy,
+  analytics overview/timeseries (7 zero-padded days), matching
+  validation 400s, settings PATCH echoes resume_templates,
+  CORS preflight acao=pages.dev origin.
+
+Production UI smoke (headless Chromium):
+  applications board renders with all 8 columns ........... PASS
+  kanban card crash fixed (no toUpperCase pageerror) ...... PASS
+  dashboard profile chip .................................. PASS
+  profile hydration (name field populated) ................ PASS
+  console errors .......................................... none
+
+ALL PHASES COMPLETE. Remaining known items (not blockers, flagged for
+the owner):
+  - backend/.env SUPABASE_URL and anon key look like a mismatched pair
+    (URL project ref != token ref) — needs the correct key from the
+    Supabase dashboard.
+  - GET /settings echoes llm.api_key in plaintext; consider masking.
+  - batch-generate shares one AsyncSession across concurrent LLM tasks;
+    works today but is fragile under load.
