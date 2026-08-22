@@ -106,11 +106,45 @@ def is_relevant(title: str, search_query: str) -> bool:
     return False
 
 
+def parse_relative_date(text: str):
+    """Parse relative date string like '1 day ago', '3 hours ago', '2 weeks ago'."""
+    if not text:
+        return None
+    text_lower = text.lower().strip()
+    now = datetime.utcnow()
+    try:
+        m = re.search(r"(\d+)\s*(minute|hour|day|week|month|year)", text_lower)
+        if not m:
+            if "today" in text_lower or "just now" in text_lower:
+                return now.isoformat()
+            if "yesterday" in text_lower:
+                return (now - timedelta(days=1)).isoformat()
+            return None
+        val = int(m.group(1))
+        unit = m.group(2)
+        if "minute" in unit:
+            return (now - timedelta(minutes=val)).isoformat()
+        if "hour" in unit:
+            return (now - timedelta(hours=val)).isoformat()
+        if "day" in unit:
+            return (now - timedelta(days=val)).isoformat()
+        if "week" in unit:
+            return (now - timedelta(weeks=val)).isoformat()
+        if "month" in unit:
+            return (now - timedelta(days=val * 30)).isoformat()
+        if "year" in unit:
+            return (now - timedelta(days=val * 365)).isoformat()
+    except Exception:
+        pass
+    return None
+
+
 def scrape_linkedin_guest(search: str, location: str, limit: int, hours_old: int, remote: bool):
     """Direct scraping of LinkedIn Guest Jobs endpoint with anti-blocking defenses."""
     jobs = []
+    seen = set()
     start = 0
-    page_size = 25
+    page_size = 10
     max_pages = max(1, (limit + page_size - 1) // page_size)
     f_tpr = f"r{hours_old * 3600}"
 
@@ -133,8 +167,6 @@ def scrape_linkedin_guest(search: str, location: str, limit: int, hours_old: int
             "location": location,
             "start": str(start),
             "f_TPR": f_tpr,
-            "position": "1",
-            "pageNum": "0",
         }
         if remote:
             params["f_WT"] = "2"
@@ -158,49 +190,108 @@ def scrape_linkedin_guest(search: str, location: str, limit: int, hours_old: int
             print("❌ Failed or challenged")
             break
 
+        # Near-empty 200 response signals no more results
+        if len(resp.text.strip()) < 200:
+            print("⚠️  No more results (end of pagination)")
+            break
+
         soup = BeautifulSoup(resp.text, "html.parser")
         cards = soup.find_all("li")
         if not cards:
-            print("⚠️  No more cards")
+            print("⚠️  No cards found")
             break
 
         page_count = 0
         for card in cards:
-            title_elem = card.find("h3", class_="base-search-card__title") or card.find("a", class_="base-card__full-link")
-            if not title_elem:
+            title_elem = (
+                card.find(class_="base-search-card__title")
+                or card.find("h3")
+                or card.find("span", class_="sr-only")
+            )
+            title = title_elem.get_text(strip=True) if title_elem else ""
+
+            link_elem = (
+                card.find("a", class_="base-card__full-link")
+                or card.find("a", href=re.compile(r"/jobs/view/"))
+                or card.find("a")
+            )
+            href = link_elem.get("href", "") if link_elem else ""
+
+            if not title or not href:
                 continue
-            title = title_elem.get_text(strip=True)
 
             if not is_relevant(title, search):
                 continue
 
-            company_elem = card.find("h4", class_="base-search-card__subtitle") or card.find("a", class_="hidden-nested-link")
-            company = company_elem.get_text(strip=True) if company_elem else "Unknown"
+            # URN / Href ID extraction
+            urn_elem = card.find(attrs={"data-entity-urn": True})
+            urn = urn_elem.get("data-entity-urn", "") if urn_elem else ""
+            
+            posting_id = None
+            if urn:
+                urn_match = re.search(r"(\d{6,})", urn)
+                if urn_match:
+                    posting_id = urn_match.group(1)
 
-            loc_elem = card.find("span", class_="job-search-card__location")
+            if not posting_id and href:
+                href_match = re.search(r"/jobs/view/(?:[^/?#]*?-)?(\d{6,})", href)
+                if href_match:
+                    posting_id = href_match.group(1)
+
+            if not posting_id:
+                id_match = re.search(r"view/(\d+)", href) or re.search(r"-(\d+)(?:\?|$)", href)
+                posting_id = id_match.group(1) if id_match else href.split("?")[0]
+
+            job_url = f"https://www.linkedin.com/jobs/view/{posting_id}/" if posting_id and posting_id.isdigit() else href.split("?")[0]
+
+            if job_url in seen:
+                continue
+            seen.add(job_url)
+
+            # Company
+            sub_elem = card.find(class_="base-search-card__subtitle") or card.find("h4")
+            company = sub_elem.get_text(strip=True) if sub_elem else "Unknown"
+
+            # Location
+            loc_elem = card.find(class_="job-search-card__location")
             loc = loc_elem.get_text(strip=True) if loc_elem else location
 
-            link_elem = card.find("a", class_="base-card__full-link") or card.find("a")
-            if not link_elem or not link_elem.get("href"):
-                continue
-            job_url = link_elem.get("href").split("?")[0]
+            # Salary
+            salary_elem = card.find(class_="job-search-card__salary-info")
+            salary = salary_elem.get_text(strip=True) if salary_elem else None
 
-            id_match = re.search(r"view/(\d+)", job_url) or re.search(r"-(\d+)(?:\?|$)", job_url)
-            job_id = id_match.group(1) if id_match else job_url
+            # Date posted
+            time_elem = card.find("time")
+            posted_at = None
+            if time_elem:
+                dt_attr = time_elem.get("datetime")
+                if dt_attr:
+                    posted_at = dt_attr
+                else:
+                    posted_at = parse_relative_date(time_elem.get_text(strip=True))
 
             remote_type = "remote" if remote or "remote" in (loc + " " + title).lower() else "on_site"
+            is_easy_apply = bool(re.search(r"easy apply", card.get_text(), re.I))
+
+            desc_parts = [f"{title} at {company} in {loc}."]
+            if salary:
+                desc_parts.append(f"Salary: {salary}.")
+            if is_easy_apply:
+                desc_parts.append("Supports LinkedIn Easy Apply.")
+            desc_parts.append("Discover and apply on LinkedIn.")
 
             job = {
                 "title": title,
                 "company": company,
                 "location": loc,
-                "description": f"{title} at {company} in {loc}. Discover and apply on LinkedIn.",
+                "description": " ".join(desc_parts),
                 "url": job_url,
-                "source_job_id": job_id,
+                "source_job_id": str(posting_id),
                 "currency": "CAD",
                 "remote_type": remote_type,
                 "employment_type": "full_time",
                 "source": "linkedin",
+                "date_posted": posted_at,
             }
             jobs.append(job)
             page_count += 1
@@ -208,11 +299,13 @@ def scrape_linkedin_guest(search: str, location: str, limit: int, hours_old: int
             if len(jobs) >= limit:
                 break
 
-        print(f"✅ {page_count} relevant jobs parsed")
-        start += 25
+        print(f"✅ {page_count} fresh jobs parsed")
+        
+        if len(cards) < page_size:
+            break
 
-        # Anti-bot delay
-        time.sleep(random.uniform(2.0, 3.5))
+        start += len(cards)
+        time.sleep(random.uniform(0.8, 1.8))
 
     return jobs
 

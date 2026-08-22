@@ -335,68 +335,137 @@ class LinkedInSource(JobSource):
 
         return None
 
+    def _parse_relative_date(self, text: Optional[str]) -> Optional[datetime]:
+        """Parse relative date strings like '1 day ago', '3 hours ago', '2 weeks ago'."""
+        if not text:
+            return None
+        text_lower = text.lower().strip()
+        now = datetime.utcnow()
+        try:
+            m = re.search(r"(\d+)\s*(minute|hour|day|week|month|year)", text_lower)
+            if not m:
+                if "today" in text_lower or "just now" in text_lower:
+                    return now
+                if "yesterday" in text_lower:
+                    return now - timedelta(days=1)
+                return None
+            val = int(m.group(1))
+            unit = m.group(2)
+            if "minute" in unit:
+                return now - timedelta(minutes=val)
+            if "hour" in unit:
+                return now - timedelta(hours=val)
+            if "day" in unit:
+                return now - timedelta(days=val)
+            if "week" in unit:
+                return now - timedelta(weeks=val)
+            if "month" in unit:
+                return now - timedelta(days=val * 30)
+            if "year" in unit:
+                return now - timedelta(days=val * 365)
+        except Exception:
+            pass
+        return None
+
     def _parse_job_cards(self, html: str, search_term: str) -> List[RawJob]:
-        """Parse job cards from LinkedIn Guest API HTML response."""
+        """Parse job cards matching LinkedIn Guest API HTML structure."""
+        if not html or len(html.strip()) < 200:
+            return []
+
         soup = BeautifulSoup(html, "html.parser")
         job_cards = soup.find_all("li")
         raw_jobs = []
 
         for card in job_cards:
             try:
-                # Job Title
+                # Title
                 title_elem = (
-                    card.find("h3", class_="base-search-card__title")
+                    card.find(class_="base-search-card__title")
+                    or card.find("h3")
                     or card.find("span", class_="sr-only")
-                    or card.find("a", class_="base-card__full-link")
                 )
-                if not title_elem:
+                title = title_elem.get_text(strip=True) if title_elem else ""
+
+                # Link & Href ID
+                link_elem = (
+                    card.find("a", class_="base-card__full-link")
+                    or card.find("a", href=re.compile(r"/jobs/view/"))
+                    or card.find("a")
+                )
+                href = link_elem.get("href", "") if link_elem else ""
+
+                # Without a title and some way to link out, the card is unusable.
+                if not title or not href:
                     continue
-                title = title_elem.get_text(strip=True)
 
                 # Relevance check: Filter out off-topic postings
                 if not self._is_relevant(title, search_term):
                     continue
 
+                # ID extraction from URN or Href (regex from proven scraper)
+                urn_elem = card.find(attrs={"data-entity-urn": True})
+                urn = urn_elem.get("data-entity-urn", "") if urn_elem else ""
+                
+                posting_id = None
+                if urn:
+                    urn_match = re.search(r"(\d{6,})", urn)
+                    if urn_match:
+                        posting_id = urn_match.group(1)
+
+                if not posting_id and href:
+                    href_match = re.search(r"/jobs/view/(?:[^/?#]*?-)?(\d{6,})", href)
+                    if href_match:
+                        posting_id = href_match.group(1)
+
+                if not posting_id:
+                    id_match = re.search(r"view/(\d+)", href) or re.search(r"-(\d+)(?:\?|$)", href)
+                    posting_id = id_match.group(1) if id_match else href.split("?")[0]
+
+                # Canonical URL
+                job_url = f"https://www.linkedin.com/jobs/view/{posting_id}/" if posting_id and posting_id.isdigit() else href.split("?")[0]
+
                 # Company
-                company_elem = card.find("h4", class_="base-search-card__subtitle") or card.find("a", class_="hidden-nested-link")
-                company = company_elem.get_text(strip=True) if company_elem else "Unknown Company"
+                sub_elem = card.find(class_="base-search-card__subtitle") or card.find("h4")
+                company = sub_elem.get_text(strip=True) if sub_elem else "Unknown Company"
 
                 # Location
-                loc_elem = card.find("span", class_="job-search-card__location")
+                loc_elem = card.find(class_="job-search-card__location")
                 location = loc_elem.get_text(strip=True) if loc_elem else "Canada"
 
-                # URL & ID
-                link_elem = card.find("a", class_="base-card__full-link") or card.find("a")
-                if not link_elem or not link_elem.get("href"):
-                    continue
-                job_url = link_elem.get("href").split("?")[0]  # Clean tracking params
+                # Salary
+                salary_elem = card.find(class_="job-search-card__salary-info")
+                salary = salary_elem.get_text(strip=True) if salary_elem else None
 
-                # Extract Job ID
-                urn_elem = card.find("div", {"data-entity-urn": True})
-                job_id = ""
-                if urn_elem:
-                    urn = urn_elem.get("data-entity-urn", "")
-                    job_id = urn.split(":")[-1]
-                if not job_id:
-                    id_match = re.search(r"view/(\d+)", job_url) or re.search(r"-(\d+)(?:\?|$)", job_url)
-                    job_id = id_match.group(1) if id_match else job_url
-
-                # Date Posted
+                # Date Posted (ISO datetime attribute or relative text label)
                 date_elem = card.find("time")
                 date_posted = None
-                if date_elem and date_elem.get("datetime"):
-                    try:
-                        date_posted = datetime.fromisoformat(date_elem.get("datetime"))
-                    except Exception:
-                        pass
+                if date_elem:
+                    dt_attr = date_elem.get("datetime")
+                    if dt_attr:
+                        try:
+                            date_posted = datetime.fromisoformat(dt_attr)
+                        except Exception:
+                            pass
+                    if not date_posted:
+                        date_posted = self._parse_relative_date(date_elem.get_text(strip=True))
+
                 if not date_posted:
                     date_posted = datetime.utcnow()
 
                 # Remote / Workplace type
                 remote_type = self.normalize_remote_type(location + " " + title)
 
+                # Easy apply flag
+                is_easy_apply = bool(re.search(r"easy apply", card.get_text(), re.I))
+
                 # Initial brief description
-                description = f"{title} at {company} in {location}. Posted on LinkedIn."
+                desc_parts = [f"{title} at {company} in {location}."]
+                if salary:
+                    desc_parts.append(f"Salary: {salary}.")
+                if is_easy_apply:
+                    desc_parts.append("Supports LinkedIn Easy Apply.")
+                desc_parts.append("Posted on LinkedIn.")
+                description = " ".join(desc_parts)
 
                 raw_job = RawJob(
                     title=title,
@@ -405,14 +474,19 @@ class LinkedInSource(JobSource):
                     description=description,
                     url=job_url,
                     source="linkedin",
-                    source_job_id=job_id,
+                    source_job_id=str(posting_id),
                     date_posted=date_posted,
                     currency="CAD",
                     remote_type=remote_type,
                     employment_type="full_time",
                     skills=self._extract_skills(title),
                     tools=[],
-                    raw_data={"search_term": search_term, "linkedin_id": job_id},
+                    raw_data={
+                        "search_term": search_term,
+                        "linkedin_id": str(posting_id),
+                        "salary": salary,
+                        "easy_apply": is_easy_apply,
+                    },
                 )
                 raw_jobs.append(raw_job)
 
