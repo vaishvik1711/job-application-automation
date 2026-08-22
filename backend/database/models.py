@@ -201,7 +201,7 @@ class JobMatch(Base):
     missing_soft_skills: Mapped[List[str]] = mapped_column(JSON, default=list)
     concerns: Mapped[List[dict]] = mapped_column(JSON, default=list)
     reasoning: Mapped[str] = mapped_column(Text)
-    prompt_version: Mapped[str] = mapped_column(String(20))
+    prompt_version: Mapped[str] = mapped_column(String(20), default="1.0.0")
     # Pre-computed job analysis from matching phase - avoids re-sending full job description
     job_analysis: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
