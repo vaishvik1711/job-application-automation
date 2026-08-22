@@ -145,6 +145,7 @@ class CandidateProfile(BaseModel):
     def get_all_skills(self) -> List[SkillEntry]:
         """Get all skills combined."""
         all_skills = []
+        all_skills.extend(self.skills)
         all_skills.extend(self.technical_skills)
         all_skills.extend(self.business_skills)
         all_skills.extend(self.tools)
