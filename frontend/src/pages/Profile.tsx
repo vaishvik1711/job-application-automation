@@ -14,7 +14,7 @@ import { AdditionalExperienceForm } from '@/components/profile/AdditionalExperie
 import { Upload, User, Sparkles, Briefcase, GraduationCap, Award, Star, CheckCircle, Trash2, AlertTriangle } from 'lucide-react'
 import { useProfileStore } from '@/store/index'
 import { useJobSearchStore } from '@/store/index'
-import { useProfile, queryKeys } from '@/hooks/useApi'
+import { useProfile } from '@/hooks/useApi'
 import { updateProfile, generateJobFilters, deleteProfile } from '@/services/api'
 import { CandidateProfile } from '@/types'
 import { toast } from 'sonner'
@@ -131,15 +131,19 @@ export function Profile() {
     try {
       await deleteProfile()
       setProfile(null)
-      // Drop the cached server profile too, or the hydration effect
-      // would immediately restore what we just deleted.
-      await queryClient.invalidateQueries({ queryKey: queryKeys.profile })
+      // Reset stores
+      useJobSearchStore.getState().resetFilters()
+      useJobSearchStore.getState().clearSelection()
+      useJobSearchStore.getState().setSearchResults([])
+      // Drop all cached queries so dashboard, jobs, applications, and profile reset
+      await queryClient.invalidateQueries()
       setShowClearConfirm(false)
       setActiveTab('resume')
-      toast.success('Profile cleared')
+      toast.success('All profile, job, and storage data cleared from Supabase')
     } catch (err: any) {
       console.error('Failed to clear profile:', err)
-      toast.error(err.response?.data?.detail || 'Failed to clear profile')
+      const msg = err.response?.data?.detail || err.message || 'Failed to clear profile'
+      toast.error(msg)
     }
   }, [setProfile, queryClient])
 

@@ -282,61 +282,45 @@ async def get_profile(session: AsyncSession = Depends(get_db_session)):
 
 @router.delete("/profile", response_model=ApiResponse)
 async def delete_profile(session: AsyncSession = Depends(get_db_session)):
-    """Delete the candidate profile and all related data."""
-    result = await session.execute(select(CandidateProfile))
-    profile = result.scalars().first()
-
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
-        )
-
-    # Collect all job IDs linked to this profile via applications or resumes
-    app_result = await session.execute(
-        select(Application).where(Application.candidate_id == profile.id)
+    """Delete all candidate profile data, master resumes, jobs, applications, matches, and Supabase storage."""
+    from database.models import (
+        CandidateProfile, CandidateExperience, MasterResume,
+        Job, JobSource, JobMatch, Resume, Application,
+        ScreeningQuestion, ApplicationEvent, ApplicationError, DailyStatistics
     )
-    applications = app_result.scalars().all()
+    import os, shutil
 
-    resume_result = await session.execute(
-        select(Resume).where(Resume.candidate_id == profile.id)
-    )
-    resumes = resume_result.scalars().all()
+    # 1. Applications & dependencies
+    await session.execute(sa_delete(ApplicationError))
+    await session.execute(sa_delete(ApplicationEvent))
+    await session.execute(sa_delete(ScreeningQuestion))
+    await session.execute(sa_delete(Application))
 
-    job_ids = set()
-    for app in applications:
-        job_ids.add(app.job_id)
-    for r in resumes:
-        job_ids.add(r.job_id)
+    # 2. Resumes & Matches
+    await session.execute(sa_delete(Resume))
+    await session.execute(sa_delete(JobMatch))
+    await session.execute(sa_delete(JobSource))
 
-    # Delete related data in the correct order to avoid FK violations
+    # 3. All Jobs & Statistics
+    await session.execute(sa_delete(Job))
+    await session.execute(sa_delete(DailyStatistics))
 
-    # 1. Applications (cascades to screening_questions, application_events, application_errors)
-    for app in applications:
-        await session.delete(app)
-
-    # 2. Resumes
-    for r in resumes:
-        await session.delete(r)
-
-    # 3. Nullify self-referential FK (canonical_job_id → jobs.id) before deleting
-    for jid in job_ids:
-        await session.execute(
-            sa_delete(JobSource).where(JobSource.job_id == jid)
-        )
-        await session.execute(
-            sa_delete(JobMatch).where(JobMatch.job_id == jid)
-        )
-        await session.execute(
-            sa_delete(Job).where(Job.id == jid)
-        )
-
-    # 4. Master Resume & CandidateProfile
+    # 4. Candidate Experience, Master Resume, Candidate Profile
+    await session.execute(sa_delete(CandidateExperience))
     await session.execute(sa_delete(MasterResume))
-    await session.delete(profile)
+    await session.execute(sa_delete(CandidateProfile))
     await session.commit()
 
-    # 5. Clean Supabase storage files (best effort)
+    # 5. Clean local cache directories if present
+    for d in ["data/master_resume", "data/generated_resumes"]:
+        if os.path.exists(d):
+            try:
+                shutil.rmtree(d)
+                os.makedirs(d, exist_ok=True)
+            except Exception as e:
+                logger.debug("Local cache clean: %s", e)
+
+    # 6. Clean all files in Supabase storage bucket (resumes)
     try:
         sb = get_supabase_client()
         files = sb.storage.from_("resumes").list()
@@ -344,10 +328,11 @@ async def delete_profile(session: AsyncSession = Depends(get_db_session)):
             file_names = [f["name"] for f in files if "name" in f]
             if file_names:
                 sb.storage.from_("resumes").remove(file_names)
+                logger.info("Removed %d files from Supabase resumes bucket", len(file_names))
     except Exception as e:
         logger.debug("Supabase storage clean notice: %s", e)
 
-    return ApiResponse(data={"deleted": True})
+    return ApiResponse(data={"deleted": True, "message": "All profile, job, and storage data cleared from Supabase"})
 
 
 @router.patch("/profile", response_model=ApiResponse)
