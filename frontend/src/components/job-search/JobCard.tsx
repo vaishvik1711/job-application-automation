@@ -1,9 +1,9 @@
-import { useState } from 'react'
 import { Job } from '@/types'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { cn, formatRelativeTime, truncate } from '@/utils/helpers'
+import { useJobSearchStore } from '@/store'
 import {
   ExternalLink,
   Bookmark,
@@ -14,6 +14,7 @@ import {
   Briefcase,
   ArrowRight,
   CheckCircle,
+  Sparkles,
 } from 'lucide-react'
 
 const STATUS_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -61,15 +62,17 @@ interface JobCardProps {
   showMatchScore?: boolean
   matchScore?: number
   onAnalyze?: () => void
+  onInspectMatch?: () => void
 }
 
-export function JobCard({ job, isSelected, onSelect, showMatchScore, matchScore, onAnalyze }: JobCardProps) {
-  const [isBookmarked, setIsBookmarked] = useState(false)
+export function JobCard({ job, isSelected, onSelect, showMatchScore, matchScore, onAnalyze, onInspectMatch }: JobCardProps) {
+  const { bookmarkedJobs, toggleBookmark } = useJobSearchStore()
+  const isBookmarked = bookmarkedJobs.includes(job.id)
   const StatusIcon = STATUS_ICONS[job.status] || Clock
 
   const handleBookmark = (e: React.MouseEvent) => {
     e.stopPropagation()
-    setIsBookmarked(!isBookmarked)
+    toggleBookmark(job.id)
   }
 
   const handleExternalLink = (e: React.MouseEvent) => {
@@ -139,18 +142,52 @@ export function JobCard({ job, isSelected, onSelect, showMatchScore, matchScore,
           )}
         </div>
 
-        {/* Match Score */}
+        {/* Match Score & Inspection */}
         {showMatchScore && matchScore !== undefined && (
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary-500 transition-all"
-                style={{ width: `${matchScore}%` }}
-              />
+          <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1 text-xs font-medium">
+                <span className="text-slate-600 dark:text-slate-400">Match Fit</span>
+                <span
+                  className={cn(
+                    'font-bold',
+                    matchScore >= 80
+                      ? 'text-green-600 dark:text-green-400'
+                      : matchScore >= 60
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-amber-600 dark:text-amber-400'
+                  )}
+                >
+                  {matchScore}%
+                </span>
+              </div>
+              <div className="h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    'h-full transition-all duration-300',
+                    matchScore >= 80
+                      ? 'bg-green-500'
+                      : matchScore >= 60
+                      ? 'bg-primary-500'
+                      : 'bg-amber-500'
+                  )}
+                  style={{ width: `${matchScore}%` }}
+                />
+              </div>
             </div>
-            <span className="text-xs font-medium text-slate-700 dark:text-slate-300 w-12">
-              {matchScore}% match
-            </span>
+            {onInspectMatch && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onInspectMatch()
+                }}
+                className="text-xs px-2 py-1 rounded bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-1 transition-colors flex-shrink-0"
+              >
+                <Sparkles className="w-3 h-3 text-primary-500" />
+                <span>Why Match?</span>
+              </button>
+            )}
           </div>
         )}
 

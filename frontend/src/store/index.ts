@@ -43,12 +43,14 @@ export const useUIStore = create<UIState>()(
 interface JobSearchState {
   filters: JobSearchFilters
   selectedJobs: Set<string>
+  bookmarkedJobs: string[]
   searchResults: Job[]
   isSearching: boolean
   searchProgress: { current: number; total: number; message: string } | null
   setFilters: (filters: Partial<JobSearchFilters>) => void
   resetFilters: () => void
   toggleJobSelection: (jobId: string) => void
+  toggleBookmark: (jobId: string) => void
   selectAllJobs: (jobIds: string[]) => void
   clearSelection: () => void
   setSearchResults: (jobs: Job[]) => void
@@ -66,30 +68,48 @@ const defaultFilters: JobSearchFilters = {
   posted_within_days: 7,
 }
 
-export const useJobSearchStore = create<JobSearchState>((set) => ({
-  filters: defaultFilters,
-  selectedJobs: new Set(),
-  searchResults: [],
-  isSearching: false,
-  searchProgress: null,
-  setFilters: (filters) => set((state) => ({ filters: { ...state.filters, ...filters } })),
-  resetFilters: () => set({ filters: defaultFilters }),
-  toggleJobSelection: (jobId) =>
-    set((state) => {
-      const newSelection = new Set(state.selectedJobs)
-      if (newSelection.has(jobId)) {
-        newSelection.delete(jobId)
-      } else {
-        newSelection.add(jobId)
-      }
-      return { selectedJobs: newSelection }
+export const useJobSearchStore = create<JobSearchState>()(
+  persist(
+    (set) => ({
+      filters: defaultFilters,
+      selectedJobs: new Set(),
+      bookmarkedJobs: [],
+      searchResults: [],
+      isSearching: false,
+      searchProgress: null,
+      setFilters: (filters) => set((state) => ({ filters: { ...state.filters, ...filters } })),
+      resetFilters: () => set({ filters: defaultFilters }),
+      toggleJobSelection: (jobId) =>
+        set((state) => {
+          const newSelection = new Set(state.selectedJobs)
+          if (newSelection.has(jobId)) {
+            newSelection.delete(jobId)
+          } else {
+            newSelection.add(jobId)
+          }
+          return { selectedJobs: newSelection }
+        }),
+      toggleBookmark: (jobId) =>
+        set((state) => ({
+          bookmarkedJobs: state.bookmarkedJobs.includes(jobId)
+            ? state.bookmarkedJobs.filter((id) => id !== jobId)
+            : [...state.bookmarkedJobs, jobId],
+        })),
+      selectAllJobs: (jobIds) => set({ selectedJobs: new Set(jobIds) }),
+      clearSelection: () => set({ selectedJobs: new Set() }),
+      setSearchResults: (jobs) => set({ searchResults: jobs }),
+      setSearching: (searching) => set({ isSearching: searching }),
+      setSearchProgress: (progress) => set({ searchProgress: progress }),
     }),
-  selectAllJobs: (jobIds) => set({ selectedJobs: new Set(jobIds) }),
-  clearSelection: () => set({ selectedJobs: new Set() }),
-  setSearchResults: (jobs) => set({ searchResults: jobs }),
-  setSearching: (searching) => set({ isSearching: searching }),
-  setSearchProgress: (progress) => set({ searchProgress: progress }),
-}))
+    {
+      name: 'job-search-store',
+      partialize: (state) => ({
+        filters: state.filters,
+        bookmarkedJobs: state.bookmarkedJobs,
+      }),
+    }
+  )
+)
 
 // Matching Store
 interface MatchingState {

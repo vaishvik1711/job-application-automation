@@ -102,8 +102,8 @@ export function Profile() {
                 remote_only: filters.remote_only,
                 posted_within_days: filters.posted_within_days,
               })
-              toast.success('Job search filters generated! Navigating to job search...')
-              navigate('/job-search')
+              toast.success('Job search filters generated! Navigating to jobs...')
+              navigate('/jobs')
             }
           } catch (filterErr: any) {
             console.error('Failed to generate job filters:', filterErr)

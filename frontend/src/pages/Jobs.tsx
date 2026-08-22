@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useJobSearch } from '@/hooks/useApi'
-import { useBatchGenerateResumes, useMatches, useProfile, useResumes } from '@/hooks/useApi'
+import { useJobSearch, useBatchGenerateResumes, useMatches, useProfile, useResumes } from '@/hooks/useApi'
 import { useJobSearchStore } from '@/store'
 import { JobCard } from '@/components/job-search/JobCard'
+import { SearchFilters } from '@/components/job-search/SearchFilters'
+import { MatchDetailModal } from '@/components/job-matching/MatchDetailModal'
 import { Button } from '@/components/ui/Button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Progress } from '@/components/ui/Progress'
 import { Badge } from '@/components/ui/Badge'
 import {
@@ -17,24 +18,36 @@ import {
   RefreshCw,
   FileText,
   Download,
+  Filter,
+  Sliders,
+  Bookmark,
+  ArrowUpDown,
+  X,
 } from 'lucide-react'
 import { downloadResume } from '@/utils/download'
+import { cn } from '@/utils/helpers'
 import { toast } from 'sonner'
-import type { MatchDetail } from '@/types'
+import type { MatchDetail, JobSearchFormData } from '@/types'
 
 export function Jobs() {
   const navigate = useNavigate()
   const { data: profile } = useProfile()
-  const { data: matchesData, isLoading: isLoadingMatches, refetch: refetchMatches } = useMatches({ page_size: 50 })
-  const { data: resumesData } = useResumes({ page: 1, page_size: 12 })
+  const { data: matchesData, isLoading: isLoadingMatches, refetch: refetchMatches } = useMatches({ page_size: 100 })
+  const { data: resumesData, refetch: refetchResumes } = useResumes({ page: 1, page_size: 12 })
   const jobSearch = useJobSearch()
   const batchGenerate = useBatchGenerateResumes()
 
-  const { selectedJobs, toggleJobSelection, clearSelection } = useJobSearchStore()
+  const { selectedJobs, toggleJobSelection, clearSelection, bookmarkedJobs } = useJobSearchStore()
 
+  const [showFilters, setShowFilters] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [searchProgress, setSearchProgress] = useState<string | null>(null)
   const [matches, setMatches] = useState<MatchDetail[]>([])
+  const [threshold, setThreshold] = useState<number>(0)
+  const [sortBy, setSortBy] = useState<'match_score' | 'posted_date' | 'company'>('match_score')
+  const [onlyBookmarked, setOnlyBookmarked] = useState(false)
+  const [inspectingMatch, setInspectingMatch] = useState<MatchDetail | null>(null)
+
   const [batchProgress, setBatchProgress] = useState<{
     total: number
     current: number
@@ -44,51 +57,82 @@ export function Jobs() {
     isRunning: boolean
   } | null>(null)
 
-  // Sync matches data when it loads
+  // Sync matches data when query resolves
   useEffect(() => {
     if (matchesData?.items) {
       setMatches(matchesData.items)
     }
   }, [matchesData])
 
-  // Auto-search on mount if profile exists but no matches
-  const handleSearch = useCallback(async () => {
+  // Custom search handler from SearchFilters
+  const handleSearchWithFilters = useCallback(
+    async (data: JobSearchFormData) => {
+      if (!profile) {
+        toast.error('Please upload your resume first on the Dashboard')
+        return
+      }
+
+      setIsSearching(true)
+      setSearchProgress('Searching job sources and analyzing matches...')
+
+      try {
+        const keywordsArray = typeof data.keywords === 'string'
+          ? data.keywords.split(',').map((k) => k.trim()).filter(Boolean)
+          : data.keywords || []
+
+        await jobSearch.mutateAsync({
+          filters: {
+            keywords: keywordsArray.length > 0
+              ? keywordsArray
+              : profile.skills?.slice(0, 10).map((s) => s.name) || [],
+            locations: data.locations?.length
+              ? data.locations
+              : profile.personal_info?.location ? [profile.personal_info.location] : [],
+            job_types: data.job_types?.length ? data.job_types : ['full_time', 'contract'],
+            remote_only: data.remote_only || false,
+            posted_within_days: data.posted_within_days || 30,
+            sources: data.sources?.length ? data.sources : ['jobbank'],
+            salary_min: data.salary_min,
+          },
+          max_results_per_source: 50,
+        })
+
+        setSearchProgress('Matching jobs against candidate profile...')
+        setTimeout(async () => {
+          await refetchMatches()
+          setIsSearching(false)
+          setSearchProgress(null)
+          setShowFilters(false)
+          toast.success('Job search complete! Matches updated.')
+        }, 2000)
+      } catch (err: any) {
+        console.error('Search failed:', err)
+        toast.error(err?.message || 'Search failed')
+        setIsSearching(false)
+        setSearchProgress(null)
+      }
+    },
+    [profile, jobSearch, refetchMatches]
+  )
+
+  // Default quick search using profile
+  const handleQuickSearch = useCallback(() => {
     if (!profile) {
       toast.error('Please upload your resume first on the Dashboard')
       return
     }
+    handleSearchWithFilters({
+      keywords: profile.skills?.slice(0, 10).map((s) => s.name).join(', ') || '',
+      locations: profile.personal_info?.location ? [profile.personal_info.location] : [],
+      job_types: ['full_time', 'contract'],
+      experience_levels: [],
+      remote_only: false,
+      posted_within_days: 30,
+      sources: ['jobbank'],
+    })
+  }, [profile, handleSearchWithFilters])
 
-    setIsSearching(true)
-    setSearchProgress('Searching for jobs matching your profile...')
-
-    try {
-      await jobSearch.mutateAsync({
-        filters: {
-          keywords: profile.skills?.slice(0, 10).map((s) => s.name) || [],
-          locations: profile.personal_info?.location ? [profile.personal_info.location] : [],
-          job_types: ['full_time', 'contract'],
-          remote_only: false,
-          posted_within_days: 30,
-          sources: ['jobbank'],
-        },
-        max_results_per_source: 50,
-      })
-      setSearchProgress('Analyzing matches...')
-      // Wait a moment for backend analysis to complete, then refetch
-      setTimeout(async () => {
-        await refetchMatches()
-        setIsSearching(false)
-        setSearchProgress(null)
-        toast.success('Jobs found and analyzed!')
-      }, 2000)
-    } catch (err: any) {
-      console.error('Search failed:', err)
-      toast.error(err?.message || 'Search failed')
-      setIsSearching(false)
-      setSearchProgress(null)
-    }
-  }, [profile, jobSearch, refetchMatches])
-
+  // Batch resume generation
   const handleBatchGenerate = useCallback(async () => {
     if (selectedJobs.size === 0) {
       toast.error('Select at least one job')
@@ -101,7 +145,7 @@ export function Jobs() {
       current: 0,
       succeeded: 0,
       failed: 0,
-      message: 'Starting batch generation...',
+      message: 'Starting tailored resume generation...',
       isRunning: true,
     })
 
@@ -116,73 +160,113 @@ export function Jobs() {
         current: jobIds.length,
         succeeded: result.succeeded,
         failed: result.failed,
-        message: `Done: ${result.succeeded} succeeded, ${result.failed} failed`,
+        message: `Generated: ${result.succeeded} tailored resume${result.succeeded !== 1 ? 's' : ''}`,
         isRunning: false,
       })
 
       if (result.succeeded > 0) {
         toast.success(`${result.succeeded} resumes generated and applications created!`, {
           action: {
-            label: 'View Applications',
+            label: 'View in Kanban',
             onClick: () => navigate('/applications'),
           },
         })
         clearSelection()
         refetchMatches()
+        refetchResumes()
       }
 
       if (result.failed > 0) {
-        toast.error(`${result.failed} jobs failed. Check the backend logs for details.`)
+        toast.error(`${result.failed} job resumes could not be generated.`)
       }
     } catch (err: any) {
       console.error('Batch generation failed:', err)
       toast.error(err?.message || 'Batch generation failed')
-      setBatchProgress((prev) => prev ? { ...prev, isRunning: false, message: 'Failed' } : null)
+      setBatchProgress((prev) => (prev ? { ...prev, isRunning: false, message: 'Failed' } : null))
     }
-  }, [selectedJobs, batchGenerate, navigate, clearSelection, refetchMatches])
+  }, [selectedJobs, batchGenerate, navigate, clearSelection, refetchMatches, refetchResumes])
+
+  // Filter and sort matches
+  const filteredAndSortedMatches = useMemo(() => {
+    let result = matches.filter((m) => {
+      const score = Math.round(m.score?.overall || 0)
+      if (score < threshold) return false
+      if (onlyBookmarked && !bookmarkedJobs.includes(m.job_id)) return false
+      return true
+    })
+
+    result.sort((a, b) => {
+      if (sortBy === 'match_score') {
+        return (b.score?.overall || 0) - (a.score?.overall || 0)
+      }
+      if (sortBy === 'posted_date') {
+        return new Date(b.job?.posted_date || 0).getTime() - new Date(a.job?.posted_date || 0).getTime()
+      }
+      if (sortBy === 'company') {
+        return (a.job?.company || '').localeCompare(b.job?.company || '')
+      }
+      return 0
+    })
+
+    return result
+  }, [matches, threshold, onlyBookmarked, bookmarkedJobs, sortBy])
 
   const isFirstVisit = !isSearching && !isLoadingMatches && matches.length === 0 && !profile
 
   return (
     <div className="space-y-6 animate-in">
-      {/* Header */}
+      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Jobs</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Discover & Match Jobs</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
             {profile
-              ? 'Review matched jobs. Select and generate resumes with one click.'
-              : 'Upload your resume on the Dashboard first to find matching jobs.'}
+              ? `Showing AI-scored opportunities matching ${profile.personal_info?.full_name || 'your profile'}`
+              : 'Upload your resume to discover and score tailored job opportunities'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFilters((prev) => !prev)}
+            className={cn(showFilters && 'border-primary-500 text-primary-600 bg-primary-50 dark:bg-primary-900/20')}
+          >
+            <Filter className="w-4 h-4 mr-1.5" />
+            {showFilters ? 'Hide Filters' : 'Search Filters'}
+          </Button>
+
           {matches.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => refetchMatches()}>
-              <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+              <RefreshCw className="w-4 h-4 mr-1.5" /> Refresh
             </Button>
           )}
-          <Button
-            onClick={handleSearch}
-            disabled={isSearching || !profile}
-            size="sm"
-          >
+
+          <Button onClick={handleQuickSearch} disabled={isSearching || !profile} size="sm">
             {isSearching ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
             ) : (
-              <Search className="w-4 h-4 mr-2" />
+              <Search className="w-4 h-4 mr-1.5" />
             )}
             {isSearching ? 'Searching...' : 'Search Jobs'}
           </Button>
         </div>
       </div>
 
+      {/* Collapsible Search Filters */}
+      {showFilters && (
+        <div className="animate-in fade-in duration-200">
+          <SearchFilters onSearch={handleSearchWithFilters} isSearching={isSearching} />
+        </div>
+      )}
+
       {/* Search Progress */}
       {isSearching && searchProgress && (
-        <Card>
+        <Card className="border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10">
           <CardContent className="py-4">
             <div className="flex items-center gap-3">
               <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
-              <span className="text-sm text-slate-600 dark:text-slate-400">{searchProgress}</span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{searchProgress}</span>
             </div>
           </CardContent>
         </Card>
@@ -213,19 +297,91 @@ export function Jobs() {
           <CardContent className="py-12 text-center">
             <Search className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">
-              No Jobs Yet
+              No Jobs Discovered Yet
             </h2>
             <p className="text-slate-500 dark:text-slate-400 max-w-lg mx-auto mb-6">
-              Click "Search Jobs" to discover and analyze jobs that match your profile.
+              Click "Search Jobs" to scan job boards for postings that match your skills, or open Search Filters to customize keywords and location.
             </p>
-            <Button onClick={handleSearch} disabled={isSearching}>
-              {isSearching ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Search className="w-4 h-4 mr-2" />
-              )}
-              Search Jobs
-            </Button>
+            <div className="flex items-center justify-center gap-3">
+              <Button onClick={handleQuickSearch} disabled={isSearching}>
+                <Search className="w-4 h-4 mr-2" /> Quick Search
+              </Button>
+              <Button variant="outline" onClick={() => setShowFilters(true)}>
+                <Filter className="w-4 h-4 mr-2" /> Custom Filters
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Controls Bar: Threshold Slider, Sort By, Bookmarks, and Selection */}
+      {!isLoadingMatches && matches.length > 0 && (
+        <Card className="border border-slate-200 dark:border-slate-800">
+          <CardContent className="py-3 px-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Threshold Slider */}
+              <div className="flex items-center gap-3 flex-1 max-w-md">
+                <div className="flex items-center gap-1.5 min-w-fit text-xs font-medium text-slate-600 dark:text-slate-400">
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Min Match Fit:</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={90}
+                  step={5}
+                  value={threshold}
+                  onChange={(e) => setThreshold(Number(e.target.value))}
+                  className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-primary-600"
+                />
+                <span className="text-xs font-bold text-primary-600 dark:text-primary-400 min-w-[2.5rem] text-right">
+                  {threshold}%+
+                </span>
+              </div>
+
+              {/* Sorting & Filter Toggles */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg p-1 text-xs">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 ml-1.5" />
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="bg-transparent border-0 text-xs font-medium text-slate-700 dark:text-slate-300 pr-2 focus:ring-0 cursor-pointer"
+                  >
+                    <option value="match_score">Highest Fit Score</option>
+                    <option value="posted_date">Newest Posted</option>
+                    <option value="company">Company (A-Z)</option>
+                  </select>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setOnlyBookmarked((prev) => !prev)}
+                  className={cn(
+                    'text-xs h-8',
+                    onlyBookmarked && 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  )}
+                >
+                  <Bookmark className="w-3.5 h-3.5 mr-1" />
+                  Saved ({bookmarkedJobs.length})
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-8"
+                  onClick={() => {
+                    const allIds = filteredAndSortedMatches.map((m) => m.job_id)
+                    allIds.forEach((id) => {
+                      if (!selectedJobs.has(id)) toggleJobSelection(id)
+                    })
+                  }}
+                >
+                  Select Visible ({filteredAndSortedMatches.length})
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -233,14 +389,21 @@ export function Jobs() {
       {/* Batch Progress */}
       {batchProgress && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              {batchProgress.isRunning ? (
-                <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
-              ) : (
-                <CheckCircle className="w-5 h-5 text-green-500" />
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                {batchProgress.isRunning ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-primary-500" />
+                ) : (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                )}
+                {batchProgress.isRunning ? 'Generating Tailored Resumes...' : 'Batch Generation Complete'}
+              </span>
+              {!batchProgress.isRunning && (
+                <Button variant="ghost" size="sm" onClick={() => setBatchProgress(null)}>
+                  <X className="w-4 h-4" />
+                </Button>
               )}
-              {batchProgress.isRunning ? 'Generating Resumes...' : 'Complete'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -252,14 +415,22 @@ export function Jobs() {
                 </span>
               </div>
               <Progress value={batchProgress.current} max={batchProgress.total} />
-              <div className="flex gap-4 text-sm">
-                <span className="text-green-600 dark:text-green-400">
-                  ✓ {batchProgress.succeeded} succeeded
-                </span>
-                {batchProgress.failed > 0 && (
-                  <span className="text-red-600 dark:text-red-400">
-                    ✗ {batchProgress.failed} failed
+              <div className="flex items-center justify-between text-sm pt-1">
+                <div className="flex gap-4">
+                  <span className="text-green-600 dark:text-green-400 font-medium">
+                    ✓ {batchProgress.succeeded} created
                   </span>
+                  {batchProgress.failed > 0 && (
+                    <span className="text-red-600 dark:text-red-400">
+                      ✗ {batchProgress.failed} failed
+                    </span>
+                  )}
+                </div>
+                {batchProgress.succeeded > 0 && (
+                  <Button size="sm" onClick={() => navigate('/applications')}>
+                    <span>Open Application Kanban</span>
+                    <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                  </Button>
                 )}
               </div>
             </div>
@@ -267,17 +438,17 @@ export function Jobs() {
         </Card>
       )}
 
-      {/* Selection bar */}
+      {/* Sticky Selection Action Bar */}
       {selectedJobs.size > 0 && (
-        <Card className="sticky top-20 z-30 border-primary-300 dark:border-primary-700">
-          <CardContent className="py-3">
-            <div className="flex items-center justify-between">
+        <Card className="sticky top-20 z-30 border-primary-400 dark:border-primary-600 shadow-xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm">
+          <CardContent className="py-3 px-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <Badge variant="primary" className="text-sm px-3 py-1">
+                <Badge variant="primary" className="text-sm px-3 py-1 font-semibold">
                   {selectedJobs.size} selected
                 </Badge>
-                <span className="text-sm text-slate-500 dark:text-slate-400">
-                  Generate resumes and create application records
+                <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline">
+                  AI will customize your resume for each target role and queue applications
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -304,58 +475,84 @@ export function Jobs() {
         </Card>
       )}
 
-      {/* Loading State */}
+      {/* Loading Skeleton */}
       {isLoadingMatches && (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-32 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
+            <div key={i} className="h-44 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse" />
           ))}
         </div>
       )}
 
       {/* Matched Jobs Grid */}
-      {!isLoadingMatches && matches.length > 0 && (
+      {!isLoadingMatches && filteredAndSortedMatches.length > 0 && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              {matches.length} matched jobs found
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                const allIds = matches.map((m) => m.job_id)
-                allIds.forEach((id) => {
-                  if (!selectedJobs.has(id)) toggleJobSelection(id)
-                })
-              }}
-            >
-              Select All
-            </Button>
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span>
+              Showing <strong>{filteredAndSortedMatches.length}</strong> of{' '}
+              <strong>{matches.length}</strong> matched opportunities
+            </span>
+            {threshold > 0 && (
+              <span className="text-primary-600 dark:text-primary-400">
+                Filtered by $\ge${threshold}% fit
+              </span>
+            )}
           </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {matches.map((match) => (
+            {filteredAndSortedMatches.map((match) => (
               <JobCard
                 key={match.job_id}
                 job={match.job}
                 isSelected={selectedJobs.has(match.job_id)}
                 onSelect={() => toggleJobSelection(match.job_id)}
                 showMatchScore
-                matchScore={match.score.overall}
+                matchScore={match.score?.overall}
+                onInspectMatch={() => setInspectingMatch(match)}
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* Generated Resumes library */}
-      {resumesData?.items && resumesData.items.length > 0 && (
+      {/* No jobs matching current threshold filter */}
+      {!isLoadingMatches && matches.length > 0 && filteredAndSortedMatches.length === 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="w-5 h-5 text-primary-500" />
-              Generated Resumes ({resumesData.total ?? resumesData.items.length})
-            </CardTitle>
+          <CardContent className="py-10 text-center">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+              No jobs meet your current filter of <strong>{threshold}%+ fit</strong>
+              {onlyBookmarked ? ' and saved status' : ''}.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setThreshold(0)
+                setOnlyBookmarked(false)
+              }}
+            >
+              Reset Filters
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Generated Resumes Library */}
+      {resumesData?.items && resumesData.items.length > 0 && (
+        <Card className="border border-slate-200 dark:border-slate-800">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary-500" />
+                Tailored Resumes Library ({resumesData.total ?? resumesData.items.length})
+              </CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => refetchResumes()} className="text-xs">
+                <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
+              </Button>
+            </div>
+            <CardDescription className="text-xs">
+              AI-generated ATS-optimized resumes customized for your matched roles
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -367,7 +564,7 @@ export function Jobs() {
                   title={`Download ${r.format?.toUpperCase?.() || 'DOCX'} resume`}
                 >
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">
+                    <span className="block text-sm font-semibold text-slate-900 dark:text-white truncate">
                       {r.job_title || `Resume #${r.id}`}
                     </span>
                     <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">
@@ -381,6 +578,19 @@ export function Jobs() {
           </CardContent>
         </Card>
       )}
+
+      {/* Match Explainability Details Modal */}
+      <MatchDetailModal
+        match={inspectingMatch}
+        isOpen={inspectingMatch !== null}
+        onClose={() => setInspectingMatch(null)}
+        isSelected={inspectingMatch ? selectedJobs.has(inspectingMatch.job_id) : false}
+        onSelectAndApply={(jobId) => {
+          if (!selectedJobs.has(jobId)) {
+            toggleJobSelection(jobId)
+          }
+        }}
+      />
     </div>
   )
 }

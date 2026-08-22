@@ -25,15 +25,18 @@ import { applicationsApi } from '@/services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 import { cn } from '@/utils/helpers'
 import {
   RefreshCw,
   Clock,
   Play,
+  Search,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-const COLUMN_ORDER: ApplicationStatus[] = [
+const ALL_COLUMN_ORDER: ApplicationStatus[] = [
   'READY_TO_APPLY',
   'APPLYING',
   'NEEDS_REVIEW',
@@ -44,6 +47,15 @@ const COLUMN_ORDER: ApplicationStatus[] = [
   'FAILED',
   'REJECTED',
   'WITHDRAWN',
+]
+
+const ACTIVE_COLUMN_ORDER: ApplicationStatus[] = [
+  'READY_TO_APPLY',
+  'APPLYING',
+  'NEEDS_REVIEW',
+  'SUBMITTED',
+  'INTERVIEW_SCHEDULED',
+  'OFFER',
 ]
 
 const COLUMN_LABELS: Record<ApplicationStatus, string> = {
@@ -129,7 +141,8 @@ function DroppableColumn({ status, children }: {
 export function ApplicationKanban() {
   const [detailApp, setDetailApp] = useState<Application | null>(null)
   const [showDetail, setShowDetail] = useState(false)
-  // Batch apply state: null = dialog closed
+  const [viewFilter, setViewFilter] = useState<'active' | 'all'>('active')
+  const [searchQuery, setSearchQuery] = useState('')
   const [batchApply, setBatchApply] = useState<{ ids: string[]; autoSubmitEnabled: boolean } | null>(null)
   const [isBatchApplying, setIsBatchApplying] = useState(false)
 
@@ -150,32 +163,45 @@ export function ApplicationKanban() {
     setDraggedApplication,
   } = useApplicationStore()
 
-  const applications: Application[] = appsData?.items || []
+  const rawApplications: Application[] = appsData?.items || []
+
+  // Filter applications by search query
+  const applications = useMemo(() => {
+    if (!searchQuery.trim()) return rawApplications
+    const q = searchQuery.toLowerCase()
+    return rawApplications.filter((app) =>
+      (app.job?.title || '').toLowerCase().includes(q) ||
+      (app.job?.company || '').toLowerCase().includes(q) ||
+      (app.notes || '').toLowerCase().includes(q)
+    )
+  }, [rawApplications, searchQuery])
+
   const applicationMap = useMemo(() => {
     const map = new Map<string, Application>()
     applications.forEach((app) => map.set(app.id, app))
     return map
   }, [applications])
 
-  // Sync store columns with API data when the server list changes.
-  // Runs in an effect — writing to the store during render can loop.
+  const activeColumnList = viewFilter === 'active' ? ACTIVE_COLUMN_ORDER : ALL_COLUMN_ORDER
+
+  // Sync store columns with API data when the server list changes
   useEffect(() => {
-    if (applications.length === 0) return
+    if (rawApplications.length === 0) return
     const newColumns = {} as Record<ApplicationStatus, string[]>
-    COLUMN_ORDER.forEach((status) => {
-      newColumns[status] = applications
+    ALL_COLUMN_ORDER.forEach((status) => {
+      newColumns[status] = rawApplications
         .filter((app) => app.status === status)
         .map((app) => app.id)
     })
     setColumns(newColumns)
-  }, [applications, setColumns])
+  }, [rawApplications, setColumns])
 
   const getColumnApplications = (status: ApplicationStatus): Application[] => {
     const ids = columns[status] || []
     return ids.map((id) => applicationMap.get(id)).filter(Boolean) as Application[]
   }
 
-  const totalApplications = Object.values(columns).flat().length
+  const totalApplications = rawApplications.length
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
@@ -187,19 +213,15 @@ export function ApplicationKanban() {
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       setDraggedApplication(null)
-
       const { active, over } = event
-
       if (!over) return
 
-      // Determine the source and target columns
       const overId = over.id as string
       const activeId = active.id as string
 
-      // Check if dropped on a column
       if (overId.startsWith('column-')) {
         const targetStatus = overId.replace('column-', '') as ApplicationStatus
-        const sourceStatus = COLUMN_ORDER.find((col) => columns[col]?.includes(activeId))
+        const sourceStatus = ALL_COLUMN_ORDER.find((col) => columns[col]?.includes(activeId))
 
         if (sourceStatus && sourceStatus !== targetStatus) {
           moveApplication(activeId, sourceStatus, targetStatus)
@@ -216,9 +238,8 @@ export function ApplicationKanban() {
           }
         }
       } else if (overId !== activeId) {
-        // Dropped on another card - determine columns
-        const targetStatus = COLUMN_ORDER.find((col) => columns[col]?.includes(overId))
-        const sourceStatus = COLUMN_ORDER.find((col) => columns[col]?.includes(activeId))
+        const targetStatus = ALL_COLUMN_ORDER.find((col) => columns[col]?.includes(overId))
+        const sourceStatus = ALL_COLUMN_ORDER.find((col) => columns[col]?.includes(activeId))
 
         if (sourceStatus && targetStatus && sourceStatus !== targetStatus) {
           moveApplication(activeId, sourceStatus, targetStatus)
@@ -244,14 +265,12 @@ export function ApplicationKanban() {
     setShowDetail(true)
   }
 
-  // Quick "Apply" from a Ready card — opens the mode picker for that one app.
   const handleApplyOne = useCallback((app: Application) => {
     setBatchApply({ ids: [app.id], autoSubmitEnabled: false })
   }, [])
 
-  // Header action — apply to every card in the Ready column.
   const handleApplyAllReady = useCallback(async () => {
-    const readyIds = applications
+    const readyIds = rawApplications
       .filter((a) => a.status === 'READY_TO_APPLY')
       .map((a) => a.id)
     if (readyIds.length === 0) {
@@ -263,13 +282,11 @@ export function ApplicationKanban() {
       const statusRes = await applicationsApi.applyStatus(readyIds[0])
       autoSubmitEnabled = !!statusRes.data.data?.auto_submit_enabled
     } catch {
-      // Status probe failed — default to manual-only.
+      // Status probe failed — default to manual-only
     }
     setBatchApply({ ids: readyIds, autoSubmitEnabled })
-  }, [applications])
+  }, [rawApplications])
 
-  // Run the batch with the chosen mode. Backend serializes browser runs to
-  // one at a time; we fire sequentially so each gets a clean start.
   const handleStartBatch = useCallback(async (mode: ApplyMode) => {
     if (!batchApply) return
     setIsBatchApplying(true)
@@ -288,7 +305,7 @@ export function ApplicationKanban() {
         toast.success(
           mode === 'auto'
             ? `Auto-applying to ${started} application${started > 1 ? 's' : ''}...`
-            : `${started} form${started > 1 ? 's' : ''} being filled — you'll review before anything is submitted`
+            : `${started} form${started > 1 ? 's' : ''} filled — review before confirming submission`
         )
       }
       setBatchApply(null)
@@ -314,50 +331,122 @@ export function ApplicationKanban() {
     }
   }
 
+  // Quick summary counts
+  const readyCount = rawApplications.filter((a) => a.status === 'READY_TO_APPLY').length
+  const submittedCount = rawApplications.filter((a) => a.status === 'SUBMITTED').length
+  const interviewCount = rawApplications.filter((a) => a.status === 'INTERVIEW_SCHEDULED' || a.status === 'INTERVIEWED').length
+  const offerCount = rawApplications.filter((a) => a.status === 'OFFER').length
+
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Application Pipeline</h2>
-          <Badge variant="neutral" className="text-xs">
-            {totalApplications} applications
-          </Badge>
+      {/* Header Controls Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Pipeline Board</h2>
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-medium">
+              {totalApplications} Total
+            </span>
+            {readyCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
+                {readyCount} Ready
+              </span>
+            )}
+            {submittedCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium">
+                {submittedCount} Submitted
+              </span>
+            )}
+            {interviewCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 font-medium">
+                {interviewCount} Interviews
+              </span>
+            )}
+            {offerCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium">
+                {offerCount} Offer!
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {(() => {
-            const readyCount = applications.filter((a) => a.status === 'READY_TO_APPLY').length
-            if (readyCount === 0) return null
-            return (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleApplyAllReady}
-                disabled={isBatchApplying}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Search */}
+          <div className="relative w-48 sm:w-60">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter company or role..."
+              className="pl-8 text-xs h-8"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               >
-                <Play className="w-4 h-4 mr-2" />
-                Apply to all ready ({readyCount})
-              </Button>
-            )
-          })()}
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* View Filter Toggle */}
+          <div className="flex items-center rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-800 text-xs">
+            <button
+              onClick={() => setViewFilter('active')}
+              className={cn(
+                'px-2.5 py-1 rounded-md font-medium transition-colors',
+                viewFilter === 'active'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              )}
+            >
+              Active Stages
+            </button>
+            <button
+              onClick={() => setViewFilter('all')}
+              className={cn(
+                'px-2.5 py-1 rounded-md font-medium transition-colors',
+                viewFilter === 'all'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+              )}
+            >
+              All Stages
+            </button>
+          </div>
+
+          {readyCount > 0 && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleApplyAllReady}
+              disabled={isBatchApplying}
+              className="h-8 text-xs"
+            >
+              <Play className="w-3.5 h-3.5 mr-1.5" />
+              Apply to Ready ({readyCount})
+            </Button>
+          )}
+
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading} className="h-8 text-xs">
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
           </Button>
         </div>
       </div>
 
-      {/* Loading State */}
+      {/* Loading Skeleton */}
       {isLoading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4 overflow-x-auto">
-          {COLUMN_ORDER.map((status) => (
-            <Card key={status} className="min-w-[180px]">
-              <CardHeader>
+        <div className="flex gap-4 overflow-x-auto pb-2">
+          {activeColumnList.map((status) => (
+            <Card key={status} className="w-[270px] flex-shrink-0">
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium">{COLUMN_LABELS[status]}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="h-40 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
+                  {[...Array(2)].map((_, i) => (
+                    <div key={i} className="h-32 bg-slate-200 dark:bg-slate-700 rounded-lg animate-pulse" />
                   ))}
                 </div>
               </CardContent>
@@ -366,7 +455,7 @@ export function ApplicationKanban() {
         </div>
       )}
 
-      {/* Kanban Board */}
+      {/* Kanban Board with Drag and Drop */}
       {!isLoading && (
         <DndContext
           sensors={sensors}
@@ -374,31 +463,29 @@ export function ApplicationKanban() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-          {/* Fixed-width columns in a scrollable row — an 8-col grid squeezes
-              cards below readable width on smaller screens. */}
-          <div className="flex gap-4 items-start overflow-x-auto pb-2">
-            {COLUMN_ORDER.map((status) => {
+          <div className="flex gap-4 items-start overflow-x-auto pb-4">
+            {activeColumnList.map((status) => {
               const columnApps = getColumnApplications(status)
               return (
                 <DroppableColumn key={status} status={status}>
                   <Card
                     className={cn(
-                      'w-full border-2 rounded-lg',
+                      'w-full border-2 rounded-xl',
                       COLUMN_BG_COLORS[status],
                       COLUMN_BORDER_COLORS[status],
                       'transition-colors'
                     )}
                   >
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium text-slate-900 dark:text-white flex items-center justify-between">
+                    <CardHeader className="pb-2 pt-3 px-3">
+                      <CardTitle className="text-sm font-semibold text-slate-900 dark:text-white flex items-center justify-between">
                         <span>{COLUMN_LABELS[status]}</span>
                         <Badge variant="neutral" className="text-xs">
                           {columnApps.length}
                         </Badge>
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="pt-0 pb-2">
-                      <div className="space-y-2 min-h-[40px]">
+                    <CardContent className="pt-0 pb-3 px-3">
+                      <div className="space-y-2.5 min-h-[50px]">
                         {columnApps.map((app) => (
                           <DraggableCard
                             key={app.id}
@@ -408,8 +495,8 @@ export function ApplicationKanban() {
                           />
                         ))}
                         {columnApps.length === 0 && (
-                          <div className="text-center py-4 text-xs text-slate-500 dark:text-slate-400">
-                            Drop here
+                          <div className="text-center py-6 text-xs text-slate-400 dark:text-slate-500 border border-dashed border-slate-200 dark:border-slate-700/50 rounded-lg">
+                            Drop card here
                           </div>
                         )}
                       </div>
@@ -427,11 +514,11 @@ export function ApplicationKanban() {
         <Card>
           <CardContent className="py-12 text-center">
             <Clock className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
-              No applications yet
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+              No applications in your pipeline yet
             </h3>
-            <p className="text-slate-500 dark:text-slate-400 mb-4">
-              Applications from your job matching will appear here as you track them through the pipeline.
+            <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-md mx-auto">
+              Select matched jobs on the Jobs page and click "Generate Resumes" to automatically populate your application tracking board.
             </p>
             <Button variant="outline" onClick={() => refetch()}>
               <RefreshCw className="w-4 h-4 mr-2" /> Check for Applications
@@ -449,7 +536,7 @@ export function ApplicationKanban() {
         onDelete={handleDelete}
       />
 
-      {/* Submission mode picker for batch/one-off apply */}
+      {/* Mode Picker Dialog for Batch / Single Apply */}
       <ModePickerDialog
         open={batchApply !== null}
         count={batchApply?.ids.length ?? 0}

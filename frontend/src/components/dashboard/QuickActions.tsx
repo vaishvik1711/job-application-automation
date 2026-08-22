@@ -1,13 +1,13 @@
 import {
   Upload,
   Search,
-  Target,
-  FileText,
   Kanban,
   BarChart3,
+  Settings,
   ArrowRight,
   CheckCircle,
   Clock,
+  AlertTriangle,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -26,45 +26,39 @@ interface QuickAction {
 const quickActions: QuickAction[] = [
   {
     label: 'Build Profile',
-    description: 'Upload resume & create candidate profile',
+    description: 'Upload resume & refine candidate profile',
     icon: Upload,
     href: '/profile',
     status: 'ready',
-    badge: 'Start here',
+    badge: 'Step 1',
   },
   {
-    label: 'Search Jobs',
-    description: 'Discover jobs from multiple sources',
+    label: 'Search & Match Jobs',
+    description: 'Discover jobs and score against your profile',
     icon: Search,
-    href: '/job-search',
+    href: '/jobs',
     status: 'ready',
-  },
-  {
-    label: 'Analyze Matches',
-    description: 'Score jobs against your profile',
-    icon: Target,
-    href: '/job-matching',
-    status: 'ready',
-  },
-  {
-    label: 'Generate Resumes',
-    description: 'Create tailored resumes for each job',
-    icon: FileText,
-    href: '/resume-builder',
-    status: 'ready',
+    badge: 'Step 2',
   },
   {
     label: 'Track Applications',
-    description: 'Manage your application pipeline',
+    description: 'Manage your active application pipeline',
     icon: Kanban,
     href: '/applications',
     status: 'ready',
   },
   {
     label: 'View Analytics',
-    description: 'Track progress and metrics',
+    description: 'Track conversion funnel and skill gaps',
     icon: BarChart3,
     href: '/analytics',
+    status: 'ready',
+  },
+  {
+    label: 'System Settings',
+    description: 'Configure LLM model and job search sources',
+    icon: Settings,
+    href: '/settings',
     status: 'ready',
   },
 ]
@@ -82,8 +76,6 @@ const statusIcons = {
   completed: CheckCircle,
   needs_setup: AlertTriangle,
 }
-
-import { AlertTriangle } from 'lucide-react'
 
 export function QuickActions() {
   const navigate = useNavigate()

@@ -13,6 +13,7 @@ import {
   Sun,
   User,
   Target,
+  BarChart3,
 } from 'lucide-react'
 import { cn } from '@/utils/helpers'
 import { WebSocketStatus } from '@/components/WebSocketStatus'
@@ -22,6 +23,7 @@ const navigation = [
   { name: 'Jobs', href: '/jobs', icon: Search },
   { name: 'Applications', href: '/applications', icon: Kanban },
   { name: 'Profile', href: '/profile', icon: User },
+  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
 ] as const
 
 export function Layout() {

@@ -23,6 +23,7 @@ import {
   PieChart,
   Search,
 } from 'lucide-react'
+import { jobsApi } from '@/services/api'
 import { formatNumber } from '@/utils/helpers'
 import { toast } from 'sonner'
 
@@ -33,8 +34,26 @@ export function Analytics() {
   const { data: skillGaps, isLoading: isLoadingSkillGaps } = useSkillGaps()
   const { data: timeSeries, isLoading: isLoadingTimeSeries } = useTimeSeries(30)
 
-  const handleExport = (format: string) => {
-    toast.info(`Exporting report as ${format}...`)
+  const handleExport = async (format: 'csv' | 'excel' = 'csv') => {
+    try {
+      toast.info(`Exporting data as ${format.toUpperCase()}...`)
+      const res = await jobsApi.export(undefined, format)
+      const blob = new Blob([res.data], {
+        type: format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `job-applications-export-${new Date().toISOString().slice(0, 10)}.${format === 'csv' ? 'csv' : 'xlsx'}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      toast.success('Export downloaded!')
+    } catch (err: any) {
+      console.error('Export failed:', err)
+      toast.error('Export failed')
+    }
   }
 
   return (
@@ -51,8 +70,8 @@ export function Analytics() {
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={() => handleExport('pdf')}>
-            <Download className="w-4 h-4 mr-2" /> Export PDF
+          <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
+            <Download className="w-4 h-4 mr-2" /> Export CSV
           </Button>
         </div>
       </div>
