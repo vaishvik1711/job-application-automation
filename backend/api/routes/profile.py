@@ -582,10 +582,10 @@ async def generate_filters(
     if not experience_levels:
         experience_levels = ["entry", "mid", "senior"]
 
-    # Locations: prefer stored preferences, fall back to profile city
+    # Locations: prefer stored preferences, fall back to Ontario, Canada
     locations = list(profile.preferred_locations) if profile.preferred_locations else []
-    if not locations and profile.city:
-        locations = [profile.city, "Remote Canada"]
+    if not locations:
+        locations = ["Ontario, Canada", "Remote Canada"]
 
     # Map employment preferences to JobType enum values (underscore format)
     pref_map = {

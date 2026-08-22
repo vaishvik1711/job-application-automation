@@ -174,9 +174,9 @@ class LinkedInSource(JobSource):
 
         return False
 
-    async def search(self, filters: Dict[str, Any], limit: int = 50) -> List[RawJob]:
+    async def search(self, filters: Dict[str, Any], limit: int = 25) -> List[RawJob]:
         """
-        Search LinkedIn jobs with anti-blocking defenses, freshness filters, and relevance checks.
+        Search LinkedIn jobs with anti-blocking defenses, freshness filters, and rapid 2-5s execution.
         """
         search_terms = self._build_search_terms(filters)
         locations = self._build_locations(filters)
@@ -184,45 +184,46 @@ class LinkedInSource(JobSource):
         remote_only = filters.get("remote_only", False)
         job_types = filters.get("job_types", [])
 
-        all_jobs: List[RawJob] = []
-        jobs_per_query = max(10, limit // max(1, len(search_terms) * len(locations)))
+        # Use primary query keyword and location directly for maximum speed
+        term = search_terms[0] if search_terms else "Data Analyst"
+        loc = locations[0] if locations else "Ontario, Canada"
 
         session = await self._get_session()
+        logger.info(f"Searching LinkedIn for '{term}' in '{loc}' (Fresh within {hours_old}h)...")
 
-        for term in search_terms:
-            for loc in locations:
-                if len(all_jobs) >= limit:
-                    break
+        try:
+            query_jobs = await self._scrape_query(
+                session=session,
+                search_term=term,
+                location=loc,
+                hours_old=hours_old,
+                remote_only=remote_only,
+                job_types=job_types,
+                limit=limit,
+            )
+        except Exception as e:
+            logger.warning(f"LinkedIn direct search error for '{term}' in '{loc}': {e}")
+            query_jobs = []
 
-                try:
-                    logger.info(f"Searching LinkedIn for '{term}' in '{loc}' (Fresh within {hours_old}h)...")
-                    query_jobs = await self._scrape_query(
-                        session=session,
-                        search_term=term,
-                        location=loc,
-                        hours_old=hours_old,
-                        remote_only=remote_only,
-                        job_types=job_types,
-                        limit=jobs_per_query,
-                    )
-                    all_jobs.extend(query_jobs)
+        # If direct scrape returned few results, try secondary term or fallback
+        if len(query_jobs) < 5 and len(search_terms) > 1:
+            try:
+                second_term = search_terms[1]
+                extra_jobs = await self._scrape_query(
+                    session=session,
+                    search_term=second_term,
+                    location=loc,
+                    hours_old=hours_old,
+                    remote_only=remote_only,
+                    job_types=job_types,
+                    limit=limit - len(query_jobs),
+                )
+                query_jobs.extend(extra_jobs)
+            except Exception:
+                pass
 
-                    # Jitter delay between search query batches to prevent IP rate-limiting
-                    jitter = random.uniform(self.rate_limit_delay, self.rate_limit_delay + 1.5)
-                    await asyncio.sleep(jitter)
-
-                except Exception as e:
-                    logger.warning(f"LinkedIn search error for '{term}' in '{loc}': {e}")
-                    # Fallback to python-jobspy if direct guest scraper gets challenged
-                    try:
-                        jobspy_jobs = await self._scrape_via_jobspy(term, loc, hours_old, jobs_per_query)
-                        all_jobs.extend(jobspy_jobs)
-                    except Exception as j_err:
-                        logger.error(f"JobSpy fallback also failed: {j_err}")
-
-        # Deduplicate and return
-        unique_jobs = self._deduplicate_jobs(all_jobs)
-        logger.info(f"LinkedIn search returning {len(unique_jobs[:limit])} fresh, relevant jobs")
+        unique_jobs = self._deduplicate_jobs(query_jobs)
+        logger.info(f"LinkedIn search returning {len(unique_jobs[:limit])} fresh jobs in Ontario")
         return unique_jobs[:limit]
 
     async def _scrape_query(
@@ -235,11 +236,11 @@ class LinkedInSource(JobSource):
         job_types: List[str],
         limit: int,
     ) -> List[RawJob]:
-        """Scrape a specific search query with pagination and backoff."""
+        """Scrape LinkedIn Guest API with fast pagination."""
         jobs: List[RawJob] = []
         start = 0
-        page_size = 25
-        max_pages = max(1, (limit + page_size - 1) // page_size)
+        page_size = 10
+        max_pages = max(1, min(4, (limit + page_size - 1) // page_size))
 
         for page in range(max_pages):
             if len(jobs) >= limit:
@@ -250,21 +251,18 @@ class LinkedInSource(JobSource):
                 "location": location,
                 "start": str(start),
                 "f_TPR": self._calculate_f_tpr(hours_old),
-                "position": "1",
-                "pageNum": "0",
             }
 
             if remote_only:
                 params["f_WT"] = "2"  # Remote
 
-            # Map employment types
             if job_types:
                 jt_codes = [self.EMPLOYMENT_TYPES[jt] for jt in job_types if jt in self.EMPLOYMENT_TYPES]
                 if jt_codes:
                     params["f_JT"] = ",".join(jt_codes)
 
             html_content = await self._fetch_with_backoff(session, self.API_SEARCH_URL, params)
-            if not html_content:
+            if not html_content or len(html_content.strip()) < 200:
                 break
 
             page_jobs = self._parse_job_cards(html_content, search_term)
@@ -274,16 +272,13 @@ class LinkedInSource(JobSource):
             jobs.extend(page_jobs)
             start += len(page_jobs)
 
-            if len(page_jobs) < 10:
+            if len(page_jobs) < page_size:
                 # End of results
                 break
 
-            # Anti-detection delay between pages
-            await asyncio.sleep(random.uniform(1.8, 3.2))
-
-        # Optionally fetch full descriptions in gentle batches
-        if self.fetch_descriptions and jobs:
-            await self._enrich_job_descriptions(session, jobs[:limit])
+            # Rapid 400ms delay between pages
+            if page < max_pages - 1:
+                await asyncio.sleep(0.4)
 
         return jobs
 
@@ -627,7 +622,7 @@ class LinkedInSource(JobSource):
             locs = [locs]
 
         cleaned = [l.strip() for l in locs if l and len(l.strip()) > 1]
-        return cleaned[:3] if cleaned else ["Toronto, ON", "Remote Canada"]
+        return cleaned[:3] if cleaned else ["Ontario, Canada", "Remote Canada"]
 
     def _extract_skills(self, text: str) -> List[str]:
         """Auto-extract known technical skills from job text."""

@@ -19,7 +19,6 @@ const searchSchema = z.object({
   sources: z.array(z.string()).optional(),
   remote_only: z.boolean().optional(),
   posted_within_days: z.number().optional(),
-  salary_min: z.number().optional(),
 })
 
 const JOB_TYPE_OPTIONS: { value: JobType; label: string }[] = [
@@ -63,21 +62,18 @@ export function SearchFilters({ onSearch, isSearching }: SearchFiltersProps) {
     jobTypes: false,
     experience: false,
     sources: false,
-    salary: false,
   })
 
   const form = useForm<JobSearchFormData & { locations_input: string }>({
     resolver: zodResolver(searchSchema),
     defaultValues: {
       keywords: filters.keywords?.join(', ') || '',
-      locations_input: '',
+      locations_input: filters.locations?.join(', ') || 'Ontario, Canada',
       job_types: filters.job_types || [],
       experience_levels: filters.experience_levels || [],
-      sources: filters.sources || [],
+      sources: filters.sources || ['linkedin', 'jobbank', 'indeed'],
       remote_only: filters.remote_only || false,
       posted_within_days: filters.posted_within_days || 7,
-      salary_min: filters.salary_min,
-      salary_max: filters.salary_max,
     },
   })
 
@@ -91,68 +87,95 @@ export function SearchFilters({ onSearch, isSearching }: SearchFiltersProps) {
     form.setValue(field, updated as any)
   }
 
-  const handleSubmit = (data: JobSearchFormData & { locations_input: string }) => {
+  const handleSubmit = (data: {
+    keywords?: string
+    locations_input?: string
+    job_types?: string[]
+    experience_levels?: string[]
+    sources?: string[]
+    remote_only?: boolean
+    posted_within_days?: number
+  }) => {
     const locations = data.locations_input
       ? data.locations_input
           .split(',')
           .map((l) => l.trim())
           .filter(Boolean)
-      : []
+      : ['Ontario, Canada']
 
-    const searchData: JobSearchFormData = {
-      keywords: data.keywords || '',
+    const keywordsStr = data.keywords || ''
+    const keywordsArray = keywordsStr
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean)
+
+    const formData: JobSearchFormData = {
+      keywords: keywordsStr,
       locations,
-      job_types: data.job_types || [],
-      experience_levels: data.experience_levels || [],
-      sources: data.sources || [],
+      job_types: (data.job_types || []) as any,
+      experience_levels: (data.experience_levels || []) as any,
+      sources: (data.sources || ['linkedin', 'jobbank', 'indeed']) as any,
       remote_only: data.remote_only || false,
       posted_within_days: data.posted_within_days || 7,
-      salary_min: data.salary_min,
     }
 
-    onSearch(searchData)
+    setFilters({
+      keywords: keywordsArray,
+      locations,
+      job_types: (data.job_types || []) as any,
+      experience_levels: (data.experience_levels || []) as any,
+      sources: (data.sources || ['linkedin', 'jobbank', 'indeed']) as any,
+      remote_only: data.remote_only,
+      posted_within_days: data.posted_within_days,
+    })
+
+    onSearch(formData)
   }
 
   const handleReset = () => {
     resetFilters()
-    form.reset()
-    setFilters({})
+    form.reset({
+      keywords: '',
+      locations_input: 'Ontario, Canada',
+      job_types: [],
+      experience_levels: [],
+      sources: ['linkedin', 'jobbank', 'indeed'],
+      remote_only: false,
+      posted_within_days: 7,
+    })
   }
 
-  const selectedCount = form.watch('job_types')?.length + form.watch('experience_levels')?.length + form.watch('sources')?.length
-
   return (
-    <Card className="mb-6">
-      <CardHeader className="pb-4">
+    <Card className="mb-6 border-slate-200 dark:border-slate-800 shadow-sm">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-lg">Search Filters</CardTitle>
-            <CardDescription>Filter jobs by keywords, location, type, and more</CardDescription>
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+              <Search className="w-5 h-5 text-primary-500" />
+              Job Search & Anti-Blocking Filters
+            </CardTitle>
+            <CardDescription className="text-xs text-slate-500 mt-0.5">
+              Target fresh postings across Ontario, Canada with stealth anti-detection
+            </CardDescription>
           </div>
-          {selectedCount > 0 && (
-            <Badge variant="primary" className="text-xs">
-              {selectedCount} active filters
-            </Badge>
-          )}
+          <Badge variant="neutral" className="text-xs font-normal">
+            Ontario, Canada
+          </Badge>
         </div>
       </CardHeader>
       <CardContent>
         <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-          {/* Keywords & Locations */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Row 1: Keywords & Location */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label htmlFor="keywords" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Keywords
+                Job Titles / Keywords
               </label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  id="keywords"
-                  {...form.register('keywords')}
-                  placeholder="e.g., React, Python, product manager"
-                  className="pl-10"
-                />
-              </div>
+              <Input
+                id="keywords"
+                {...form.register('keywords')}
+                placeholder="e.g. Data Analyst, Business Analyst"
+              />
             </div>
             <div>
               <label htmlFor="locations_input" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -161,38 +184,38 @@ export function SearchFilters({ onSearch, isSearching }: SearchFiltersProps) {
               <Input
                 id="locations_input"
                 {...form.register('locations_input')}
-                placeholder="e.g., San Francisco, Remote, New York"
+                placeholder="Ontario, Canada"
               />
             </div>
+          </div>
+
+          {/* Row 2: Date Posted & Remote Toggle */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
             <div>
               <label htmlFor="posted_within_days" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Posted Within
+                Posting Freshness
               </label>
               <Select
                 id="posted_within_days"
-                placeholder="Last 7 days"
-                options={POSTED_WITHIN_OPTIONS.map((o) => ({ value: String(o.value), label: o.label }))}
                 {...form.register('posted_within_days', { valueAsNumber: true })}
-                error={form.formState.errors.posted_within_days?.message}
+                options={POSTED_WITHIN_OPTIONS.map((o) => ({ value: String(o.value), label: o.label }))}
               />
+            </div>
+            <div className="flex items-center gap-2 pt-6">
+              <input
+                type="checkbox"
+                id="remote_only"
+                {...form.register('remote_only')}
+                className="w-4 h-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+              />
+              <label htmlFor="remote_only" className="text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
+                Remote & Hybrid Only
+              </label>
             </div>
           </div>
 
-          {/* Remote Toggle */}
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="remote_only"
-              {...form.register('remote_only')}
-              className="w-4 h-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
-            />
-            <label htmlFor="remote_only" className="text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
-              Remote only
-            </label>
-          </div>
-
           {/* Collapsible Sections */}
-          <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+          <div className="space-y-3 pt-2">
             {/* Job Types */}
             <div className="border border-slate-200 dark:border-slate-700 rounded-lg">
               <button
@@ -234,7 +257,7 @@ export function SearchFilters({ onSearch, isSearching }: SearchFiltersProps) {
                 onClick={() => toggleSection('experience')}
                 className="w-full flex items-center justify-between p-3 text-left"
               >
-                <span className="font-medium text-slate-700 dark:text-slate-300">Experience Level</span>
+                <span className="font-medium text-slate-700 dark:text-slate-300">Experience Levels</span>
                 {collapsedSections.experience ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
               </button>
               {!collapsedSections.experience && (
@@ -272,7 +295,7 @@ export function SearchFilters({ onSearch, isSearching }: SearchFiltersProps) {
                 {collapsedSections.sources ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
               </button>
               {!collapsedSections.sources && (
-                <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-6 gap-2">
+                <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-3 gap-2">
                   {JOB_SOURCE_OPTIONS.map((opt) => {
                     const selected = form.watch('sources')?.includes(opt.value)
                     return (
@@ -291,38 +314,6 @@ export function SearchFilters({ onSearch, isSearching }: SearchFiltersProps) {
                       </button>
                     )
                   })}
-                </div>
-              )}
-            </div>
-
-            {/* Salary Range */}
-            <div className="border border-slate-200 dark:border-slate-700 rounded-lg">
-              <button
-                type="button"
-                onClick={() => toggleSection('salary')}
-                className="w-full flex items-center justify-between p-3 text-left"
-              >
-                <span className="font-medium text-slate-700 dark:text-slate-300">Minimum Salary</span>
-                {collapsedSections.salary ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-              </button>
-              {!collapsedSections.salary && (
-                <div className="px-3 pb-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="salary_min" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                        Min Salary (optional)
-                      </label>
-                      <Input
-                        id="salary_min"
-                        type="number"
-                        {...form.register('salary_min', { valueAsNumber: true })}
-                        placeholder="e.g. 50000"
-                      />
-                    </div>
-                    <div className="flex items-end">
-                      <span className="text-sm text-slate-400 dark:text-slate-500 pb-2">per year</span>
-                    </div>
-                  </div>
                 </div>
               )}
             </div>

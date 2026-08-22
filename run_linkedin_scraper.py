@@ -53,7 +53,7 @@ USER_AGENTS = [
 def parse_args():
     parser = argparse.ArgumentParser(description="Stealth scraper for fresh and relevant LinkedIn jobs")
     parser.add_argument("--search", default="Data Analyst", help="Job search term (default: Data Analyst)")
-    parser.add_argument("--location", default="Toronto, ON", help="Location (default: Toronto, ON)")
+    parser.add_argument("--location", default="Ontario, Canada", help="Location (default: Ontario, Canada)")
     parser.add_argument("--limit", type=int, default=25, help="Max results (default: 25)")
     parser.add_argument("--hours-old", type=int, default=168, help="Max hours since posting: 24=1 day, 72=3 days, 168=7 days (default: 168)")
     parser.add_argument("--remote", action="store_true", help="Filter for remote jobs only")

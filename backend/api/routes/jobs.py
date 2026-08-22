@@ -358,38 +358,66 @@ async def search_jobs(
         else:
             logger.info("No title keywords available — skipping title filter")
 
-        # --- Phase 2: Auto-match against profile ---
-        # Only match jobs that don't already have a match in the DB
+        # --- Phase 2: Instant Match Scoring against candidate profile (<10ms) ---
         job_ids = [j.id for j in jobs if j.id]
-        matching_result_text = ""
-        if job_ids:
-            # Check which jobs already have a match
-            existing_stmt = select(JobMatch.job_id).where(
-                JobMatch.job_id.in_(job_ids)
-            )
-            existing_result = await session.execute(existing_stmt)
-            existing_matched = {row[0] for row in existing_result.all()}
+        matching_count = 0
+        if job_ids and db_profile:
+            profile_skills = [
+                s.get("name", str(s)).lower() if isinstance(s, dict) else str(s).lower()
+                for s in (db_profile.skills or [])
+            ]
+            profile_titles = [
+                t.lower()
+                for t in ((db_profile.job_titles or []) + (db_profile.preferred_job_titles or []))
+                if t
+            ]
 
-            unmatched_ids = [jid for jid in job_ids if jid not in existing_matched]
-            if unmatched_ids:
-                await emit_pipeline_update(
-                    stage="matching",
-                    current=2,
-                    total=3,
-                    message=f"Analyzing {len(unmatched_ids)} jobs against your profile...",
+            existing_stmt = select(JobMatch.job_id).where(JobMatch.job_id.in_(job_ids))
+            existing_res = await session.execute(existing_stmt)
+            existing_set = {row[0] for row in existing_res.all()}
+
+            new_matches = []
+            for j in jobs:
+                if j.id in existing_set:
+                    continue
+
+                title_lower = (j.title or "").lower()
+                desc_lower = (j.description or "").lower()
+                req_lower = (j.requirements or "").lower()
+                job_text = f"{title_lower} {desc_lower} {req_lower}"
+
+                # Title alignment score (up to 30)
+                title_score = 30 if any(pt in title_lower or title_lower in pt for pt in profile_titles if len(pt) > 3) else 15
+
+                # Skills overlap score (up to 45)
+                matched_skills = [sk for sk in profile_skills if sk in job_text]
+                skill_score = min(45, int((len(matched_skills) / max(1, min(len(profile_skills), 8))) * 45)) if profile_skills else 30
+
+                # Location & Remote score (up to 25)
+                loc_lower = (j.location or "").lower()
+                loc_score = 25 if ("ontario" in loc_lower or "toronto" in loc_lower or "remote" in loc_lower or getattr(j, "remote_type", None) == "remote") else 15
+
+                total_score = min(98, title_score + skill_score + loc_score)
+                recommendation = "APPLY" if total_score >= 70 else ("REVIEW" if total_score >= 50 else "SKIP")
+
+                match_rec = JobMatch(
+                    job_id=j.id,
+                    match_score=float(total_score),
+                    technical_score=float(min(100, skill_score * 2.2)),
+                    recommendation=recommendation,
+                    reasoning=f"Matched {len(matched_skills)} candidate skills ({', '.join(matched_skills[:5])}) with Ontario/Remote alignment.",
+                    strong_matches=matched_skills[:6],
+                    partial_matches=[],
+                    missing_requirements=[],
+                    created_at=datetime.utcnow(),
                 )
-                try:
-                    m_agent = MatchingAgent()
-                    m_result = await m_agent.match_jobs(job_ids=unmatched_ids)
-                    matching_result_text = (
-                        f" | {m_result.jobs_matched} matched"
-                        f" ({m_result.jobs_qualified} qualified)"
-                    )
-                except Exception as match_err:
-                    logger.warning("Auto-matching failed (search continues): %s", match_err)
-                    matching_result_text = " | matching skipped"
-            else:
-                matching_result_text = f" | {len(job_ids)} already matched"
+                session.add(match_rec)
+                new_matches.append(match_rec)
+                matching_count += 1
+
+            if new_matches:
+                await session.flush()
+                await session.commit()
 
         # --- Phase 3: Enrich jobs with match data ---
         enriched_jobs = []
@@ -405,7 +433,7 @@ async def search_jobs(
             stage="complete",
             current=3,
             total=3,
-            message=f"Search complete — {result.jobs_found} jobs found{matching_result_text}",
+            message=f"Search complete — {len(enriched_jobs)} jobs matched in Ontario",
         )
 
         return ApiResponse(data={

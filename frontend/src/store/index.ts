@@ -60,10 +60,10 @@ interface JobSearchState {
 
 const defaultFilters: JobSearchFilters = {
   keywords: [],
-  locations: [],
+  locations: ['Ontario, Canada'],
   job_types: [],
   experience_levels: [],
-  sources: ['jobbank', 'indeed'],
+  sources: ['linkedin', 'jobbank', 'indeed'],
   remote_only: false,
   posted_within_days: 7,
 }
