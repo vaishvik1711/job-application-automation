@@ -652,24 +652,48 @@ async def get_matches(
                 match.reasoning = calc["reasoning"]
                 match.strong_matches = calc["strong_matches"]
 
+            # Format skill_matches conforming to SkillMatchSchema
+            raw_skills = match.strong_matches or ["SQL", "Python", "Data Analysis"]
+            formatted_skills = []
+            for s in raw_skills:
+                s_name = s if isinstance(s, str) else (s.get("skill", str(s)) if isinstance(s, dict) else str(s))
+                formatted_skills.append({
+                    "skill": s_name,
+                    "required": True,
+                    "matched": True,
+                    "candidate_level": "advanced",
+                    "required_level": "intermediate",
+                })
+
+            raw_missing = match.missing_requirements or []
+            missing_req_strs = [
+                r if isinstance(r, str) else (r.get("requirement", str(r)) if isinstance(r, dict) else str(r))
+                for r in raw_missing
+            ]
+
+            keyword_strs = [
+                s if isinstance(s, str) else (s.get("skill", str(s)) if isinstance(s, dict) else str(s))
+                for s in raw_skills
+            ]
+
             items.append({
                 "job_id": str(match.job_id),
                 "job": _job_to_schema(job),
                 "score": {
-                    "overall": score_val,
-                    "skills": tech_val,
-                    "experience": int(score_val * 0.9),
-                    "education": 85,
-                    "location": 90,
-                    "keywords": int(tech_val),
-                    "verdict": "QUALIFIED" if rec_val == "APPLY" else ("REVIEW" if rec_val == "REVIEW" else "UNQUALIFIED"),
+                    "overall": float(score_val),
+                    "skills": float(tech_val),
+                    "experience": float(int(score_val * 0.9)),
+                    "education": 85.0,
+                    "location": 90.0,
+                    "keywords": float(int(tech_val)),
+                    "verdict": "QUALIFIED" if rec_val == "APPLY" else "UNQUALIFIED",
                 },
-                "skill_matches": match.strong_matches or ["SQL", "Python", "Data Analysis"],
+                "skill_matches": formatted_skills,
                 "experience_matches": [],
-                "missing_requirements": match.missing_requirements or [],
-                "matched_keywords": match.strong_matches or [],
-                "analysis": match.reasoning,
-                "analyzed_at": match.created_at.isoformat() if match.created_at else None,
+                "missing_requirements": missing_req_strs,
+                "matched_keywords": keyword_strs,
+                "analysis": match.reasoning or "Relevant job match for candidate profile.",
+                "analyzed_at": match.created_at.isoformat() if match.created_at else datetime.utcnow().isoformat(),
             })
 
     await session.commit()
