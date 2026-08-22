@@ -466,14 +466,37 @@ class ApplyService:
             return cred.username, decrypt_secret(cred.password_encrypted)
 
     async def _ensure_resume_file(self, resume_path: Optional[str], resume) -> Optional[str]:
-        """Disk miss (post-redeploy) → fetch from Supabase Storage."""
-        import os
-        if not resume_path or not resume:
-            return None
-        if os.path.exists(resume_path):
-            return resume_path
-        from storage import materialize_resume
-        return await materialize_resume(resume.id, resume.filename, resume_path)
+        """Disk miss (post-redeploy) → fetch from Supabase Storage or auto-synthesize from candidate profile."""
+        import os, shutil
+        target_path = resume_path or "data/generated_resumes/tailored_resume.docx"
+        if os.path.exists(target_path):
+            return target_path
+
+        # 1. Try Supabase materialization if configured
+        try:
+            from storage import materialize_resume
+            path = await materialize_resume(resume.id if resume else None, getattr(resume, "filename", "resume.docx"), target_path)
+            if path and os.path.exists(path):
+                return path
+        except Exception:
+            pass
+
+        # 2. Resilient fallback: synthesize the master resume directly onto the target path
+        try:
+            from api.routes.resumes import _resolve_or_create_master_resume
+            from database.repositories import RepositoryFactory
+            async with get_session() as session:
+                repos = RepositoryFactory(session)
+                profile = await repos.candidates.get_profile()
+                if profile:
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    master_path = await _resolve_or_create_master_resume(session, profile)
+                    shutil.copy(master_path, target_path)
+                    return target_path
+        except Exception as e:
+            logger.warning("Could not auto-synthesize missing resume file: %s", e)
+
+        return None
 
     async def _click_submit(self, parked: registry.ParkedSubmission) -> Dict:
         """Find and click the real submit button on the parked page."""
