@@ -553,6 +553,34 @@ async def get_job_stats(session: AsyncSession = Depends(get_db_session)):
     })
 
 
+@router.delete("/jobs", response_model=ApiResponse)
+async def delete_all_jobs(session: AsyncSession = Depends(get_db_session)):
+    """Delete all jobs and associated matches, applications, and resumes."""
+    from database.models import (
+        Job, JobSource, JobMatch, Resume, Application,
+        ScreeningQuestion, ApplicationEvent, ApplicationError, DailyStatistics
+    )
+    from sqlalchemy import delete as sa_delete
+
+    # 1. Delete application dependencies
+    await session.execute(sa_delete(ApplicationError))
+    await session.execute(sa_delete(ApplicationEvent))
+    await session.execute(sa_delete(ScreeningQuestion))
+    await session.execute(sa_delete(Application))
+
+    # 2. Delete resumes & matches
+    await session.execute(sa_delete(Resume))
+    await session.execute(sa_delete(JobMatch))
+    await session.execute(sa_delete(JobSource))
+
+    # 3. Nullify self-referencing and delete jobs & stats
+    await session.execute(sa_delete(Job))
+    await session.execute(sa_delete(DailyStatistics))
+    await session.commit()
+
+    return ApiResponse(data={"deleted": True, "message": "All jobs and associated records deleted"})
+
+
 @router.post("/jobs/bulk-import", response_model=ApiResponse)
 async def bulk_import_jobs(
     request: dict,

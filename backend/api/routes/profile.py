@@ -331,8 +331,21 @@ async def delete_profile(session: AsyncSession = Depends(get_db_session)):
             sa_delete(Job).where(Job.id == jid)
         )
 
-    # 4. CandidateProfile (cascades to candidate_experience)
+    # 4. Master Resume & CandidateProfile
+    await session.execute(sa_delete(MasterResume))
     await session.delete(profile)
+    await session.commit()
+
+    # 5. Clean Supabase storage files (best effort)
+    try:
+        sb = get_supabase_client()
+        files = sb.storage.from_("resumes").list()
+        if files:
+            file_names = [f["name"] for f in files if "name" in f]
+            if file_names:
+                sb.storage.from_("resumes").remove(file_names)
+    except Exception as e:
+        logger.debug("Supabase storage clean notice: %s", e)
 
     return ApiResponse(data={"deleted": True})
 
