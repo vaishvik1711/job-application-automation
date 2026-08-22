@@ -11,6 +11,7 @@ from job_sources.workday import WorkdaySource, create_workday_source
 from job_sources.icims import ICIMSSource, create_icims_source
 from job_sources.smartrecruiters import SmartRecruitersSource, create_smartrecruiters_source
 from job_sources.jobspy_source import JobSpySource, create_jobspy_source
+from job_sources.linkedin import LinkedInSource, create_linkedin_source
 
 __all__ = [
     "JobSource",
@@ -30,6 +31,8 @@ __all__ = [
     "create_smartrecruiters_source",
     "JobSpySource",
     "create_jobspy_source",
+    "LinkedInSource",
+    "create_linkedin_source",
 ]
 
 # Source registry for dynamic loading
@@ -41,6 +44,7 @@ SOURCE_REGISTRY = {
     "icims": (ICIMSSource, create_icims_source),
     "smartrecruiters": (SmartRecruitersSource, create_smartrecruiters_source),
     "jobspy": (JobSpySource, create_jobspy_source),
+    "linkedin": (LinkedInSource, create_linkedin_source),
 }
 
 

@@ -260,7 +260,7 @@ async def search_jobs(
         frontend_sources = filters.get("sources", [])
         backend_source_map = {
             "indeed": "indeed",
-            "linkedin": "jobspy",
+            "linkedin": "linkedin",
             "jobbank": "jobbank",
         }
         backend_sources = None
@@ -273,8 +273,6 @@ async def search_jobs(
             backend_sources = list(mapped) if mapped else None
 
         # --- Phase 1: Discover jobs ---
-        # Split sources: only scrape JobBank from Railway (Indeed/LinkedIn blocked).
-        # Indeed jobs must be pre-imported via run_indeed_scraper.py or DB.
         scrapable_sources = None
         if backend_sources:
             filtered = [s for s in backend_sources if s != "indeed"]
@@ -295,15 +293,17 @@ async def search_jobs(
         )
 
         # Fetch jobs from DB — filter by source if user selected specific sources.
-        # Use a wider lookback for pre-imported sources (Indeed) since they aren't scraped live.
+        # Use a wider lookback for pre-imported sources (Indeed/LinkedIn) since they aren't scraped live.
         one_hour_ago = datetime.utcnow() - timedelta(hours=7 * 24)  # 7 days
         if backend_sources:
             # Query each source with its own limit for fair distribution.
             all_jobs = []
             per_source_limit = max_results * 3
-            # Also match jobspy_indeed when querying for indeed (legacy jobs)
+            # Match aliases when querying for sources
             source_aliases = {
                 "indeed": ["indeed", "jobspy_indeed"],
+                "linkedin": ["linkedin", "jobspy_linkedin"],
+                "jobbank": ["jobbank"],
             }
             for bs in backend_sources:
                 bs_patterns = source_aliases.get(bs, [bs])
@@ -611,7 +611,7 @@ async def bulk_import_jobs(
 
             job = Job(
                 canonical_url=url or f"{source_name}:{raw.get('source_job_id', '')}:{ch[:16]}",
-                source=f"indeed",
+                source=source_name,
                 title=title,
                 company=company,
                 location=location,

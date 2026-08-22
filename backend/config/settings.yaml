@@ -61,17 +61,24 @@ job_sources:
     max_pages: 10
     timeout: 30
 
+  # LinkedIn - Stealth anti-blocking scraper for fresh and relevant jobs
+  linkedin:
+    enabled: true
+    rate_limit_delay: 2.0
+    max_retries: 3
+    hours_old: 168  # 7 days (fresh)
+    fetch_descriptions: true
+
   # JobSpy - python-jobspy scraper for LinkedIn, Indeed, ZipRecruiter, Glassdoor, Google
   # No API keys required but subject to rate limiting
   jobspy:
     enabled: true
-    # linkedin and indeed work; zip_recruiter (403) and glassdoor (400) blocked
-    # indeed scraped via local run_indeed_scraper.py; linkedin blocked on Railway
     sites:
       - "indeed"
+      - "linkedin"
     max_results_per_site: 25
-    hours_old: 720  # 30 days
-    linkedin_fetch_description: true
+    hours_old: 168  # 7 days
+    linkedin_fetch_description: false  # Avoid mass detail requests that trigger 429
     country_indeed: "Canada"
     rate_limit: 0.5  # requests per second (be gentle)
 

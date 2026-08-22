@@ -39,8 +39,9 @@ const EXPERIENCE_LEVEL_OPTIONS: { value: ExperienceLevel; label: string }[] = [
 ]
 
 const JOB_SOURCE_OPTIONS: { value: JobSource; label: string }[] = [
+  { value: 'linkedin', label: 'LinkedIn (Stealth Scraper)' },
   { value: 'jobbank', label: 'JobBank (Gov. Canada)' },
-  { value: 'indeed', label: 'Indeed (run local scraper)' },
+  { value: 'indeed', label: 'Indeed (Scraper)' },
 ]
 
 const POSTED_WITHIN_OPTIONS = [

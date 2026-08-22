@@ -100,8 +100,12 @@ class JobSpySource(JobSource):
 
                             if len(all_jobs) >= limit:
                                 break
+
+                            # Jitter delay to prevent site bans
+                            await asyncio.sleep(1.5)
                         except Exception as e:
                             logger.warning(f"Error searching {site} for '{search_term}' in '{location}': {e}")
+                            await asyncio.sleep(2.0)
                             continue
 
                     if len(all_jobs) >= limit:

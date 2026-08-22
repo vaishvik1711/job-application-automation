@@ -131,7 +131,7 @@ export interface CandidateProfile {
 }
 
 // Job Types
-export type JobSource = 'jobbank' | 'indeed'
+export type JobSource = 'jobbank' | 'indeed' | 'linkedin'
 
 export type JobType = 'full_time' | 'part_time' | 'contract' | 'internship' | 'temporary'
 
