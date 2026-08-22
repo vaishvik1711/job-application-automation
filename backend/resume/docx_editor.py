@@ -58,7 +58,11 @@ class DocxEditor:
 
     def __init__(self, docx_path: str, preserve_original: bool = False):
         self.docx_path = Path(docx_path)
-        self.doc: DocxDocument = docx.Document(docx_path)
+        try:
+            self.doc: DocxDocument = docx.Document(docx_path)
+        except Exception as e:
+            logger.warning("Could not open %s as DOCX (%s). Initializing clean document.", docx_path, e)
+            self.doc: DocxDocument = docx.Document()
         self.original_doc = copy.deepcopy(self.doc) if preserve_original else None
         self.sections = self._identify_sections()
         self.format_info = self._extract_format_info()

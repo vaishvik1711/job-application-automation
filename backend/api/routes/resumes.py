@@ -156,38 +156,51 @@ async def _resolve_or_create_master_resume(session: AsyncSession, profile: Any) 
 
     resume_dir = "data/master_resume"
     os.makedirs(resume_dir, exist_ok=True)
-    resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
-    if resume_files:
-        return resume_files[0]
+    resume_files = glob.glob(f"{resume_dir}/*.docx")
+    for fpath in resume_files:
+        try:
+            docx.Document(fpath)
+            return fpath
+        except Exception:
+            continue
 
     # Tier 1: Check MasterResume table in DB
     try:
         master_resume = (
             await session.execute(
-                sa_select(MasterResume).order_by(MasterResume.created_at.desc()).limit(1)
+                sa_select(MasterResume).where(MasterResume.file_type == "docx").order_by(MasterResume.created_at.desc()).limit(1)
             )
         ).scalars().first()
         if master_resume and master_resume.file_data:
             local_path = f"{resume_dir}/{master_resume.filename or 'master_resume.docx'}"
             with open(local_path, "wb") as f:
                 f.write(bytes(master_resume.file_data))
-            logger.info("Restored master resume from DB: %s", master_resume.filename)
-            return local_path
+            try:
+                docx.Document(local_path)
+                logger.info("Restored master resume from DB: %s", master_resume.filename)
+                return local_path
+            except Exception:
+                pass
     except Exception as e:
         logger.warning("Could not restore master resume from DB: %s", e)
 
-    # Tier 2: Check Supabase Storage
+    # Tier 2: Check Supabase Storage for DOCX files
     try:
         from api.routes.profile import get_supabase_client
         sb = get_supabase_client()
         files = sb.storage.from_("resumes").list()
-        if files:
-            latest = files[-1]
+        docx_files = [f for f in files if f.get("name", "").endswith(".docx")]
+        if docx_files:
+            latest = docx_files[-1]
             file_data = sb.storage.from_("resumes").download(latest["name"])
             local_path = f"{resume_dir}/{latest['name'].split('/')[-1]}"
             with open(local_path, "wb") as f:
                 f.write(file_data)
-            return local_path
+            try:
+                docx.Document(local_path)
+                return local_path
+            except Exception:
+                pass
     except Exception as e:
         logger.warning("Could not download resume from Supabase: %s", e)
 
@@ -201,36 +214,37 @@ async def _resolve_or_create_master_resume(session: AsyncSession, profile: Any) 
         s.left_margin = Inches(0.75)
         s.right_margin = Inches(0.75)
 
+    name_str = getattr(profile, "name", None) or getattr(profile, "full_name", None) or "Vaishvik Patel"
     name_p = doc.add_paragraph()
-    name_run = name_p.add_run(getattr(profile, "full_name", None) or "Candidate Profile")
+    name_run = name_p.add_run(name_str)
     name_run.font.size = Pt(16)
     name_run.font.bold = True
 
     contact_items = [
         getattr(profile, "email", "") or "",
         getattr(profile, "phone", "") or "",
-        getattr(profile, "city", "") or "",
+        getattr(profile, "city", "") or "Toronto, ON",
         getattr(profile, "linkedin_url", "") or "",
     ]
     contact_str = " | ".join([c for c in contact_items if c])
     if contact_str:
         doc.add_paragraph(contact_str)
 
-    if getattr(profile, "summary", None):
-        doc.add_heading("Professional Summary", level=1)
-        doc.add_paragraph(profile.summary)
+    summary_text = getattr(profile, "summary", None) or f"{name_str} is an experienced Data & Business Analyst with expertise in SQL, Python, Power BI, and automated reporting."
+    doc.add_heading("Professional Summary", level=1)
+    doc.add_paragraph(summary_text)
 
     skills = getattr(profile, "skills", None) or []
     if skills:
-        doc.add_heading("Skills", level=1)
+        doc.add_heading("Technical & Analytical Skills", level=1)
         skill_names = [s.get("name", str(s)) if isinstance(s, dict) else str(s) for s in skills]
         doc.add_paragraph(", ".join(skill_names))
 
     history = getattr(profile, "employment_history", None) or []
     if history:
-        doc.add_heading("Experience", level=1)
+        doc.add_heading("Professional Experience", level=1)
         for emp in history:
-            title = emp.get("title") or emp.get("role") or "Role"
+            title = emp.get("title") or emp.get("role") or "Data Analyst"
             company = emp.get("company") or "Company"
             dates = f"{emp.get('start_date', '')} - {emp.get('end_date', 'Present')}".strip(" -")
             p = doc.add_paragraph()
