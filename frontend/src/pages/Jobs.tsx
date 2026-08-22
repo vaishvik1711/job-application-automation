@@ -181,7 +181,8 @@ export function Jobs() {
       }
     } catch (err: any) {
       console.error('Batch generation failed:', err)
-      toast.error(err?.message || 'Batch generation failed')
+      const msg = err?.response?.data?.detail || err?.message || 'Batch generation failed'
+      toast.error(msg)
       setBatchProgress((prev) => (prev ? { ...prev, isRunning: false, message: 'Failed' } : null))
     }
   }, [selectedJobs, batchGenerate, navigate, clearSelection, refetchMatches, refetchResumes])

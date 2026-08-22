@@ -383,11 +383,11 @@ class RepositoryFactory:
         from database.models import Job, JobMatch, CandidateProfile, CandidateExperience
 
         # JobMatch has no FK/relationship to CandidateProfile, so its join
-        # cannot be inferred — fetch job+match via the valid join, then get
-        # the singleton candidate profile separately (single-candidate system).
+        # cannot be inferred — fetch job+match via outerjoin so jobs without prior match succeed,
+        # then get the singleton candidate profile separately (single-candidate system).
         result = await self.session.execute(
             select(Job, JobMatch)
-            .join(JobMatch, Job.id == JobMatch.job_id)
+            .outerjoin(JobMatch, Job.id == JobMatch.job_id)
             .where(Job.id == job_id)
         )
         row = result.first()

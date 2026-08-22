@@ -63,7 +63,8 @@ export function ResumeBuilder() {
       }, 500)
     } catch (err: any) {
       console.error('Resume generation failed:', err)
-      toast.error(err.message || 'Failed to generate resume')
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to generate resume'
+      toast.error(msg)
       setGenerationProgress(null)
     } finally {
       setIsGenerating(false)

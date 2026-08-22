@@ -80,21 +80,17 @@ class ResumeAgent:
                 repos = RepositoryFactory(session)
                 data = await repos.get_resume_generation_data(job_id)
 
-                if not data:
-                    result.errors.append(f"Job {job_id} not found or no match")
+                if not data or not data.get("job"):
+                    result.errors.append(f"Job {job_id} not found in database")
                     return result
 
                 job = data["job"]
-                match = data["match"]
-                profile = data["profile"]
-                experience_notes = data["experience_notes"]
-
-                if not match or match.recommendation != "APPLY":
-                    result.errors.append(f"Job {job_id} not qualified for application")
-                    return result
+                match = data.get("match")
+                profile = data.get("profile")
+                experience_notes = data.get("experience_notes", [])
 
                 if not profile:
-                    result.errors.append("No candidate profile found")
+                    result.errors.append("No candidate profile found. Please upload or save your profile first.")
                     return result
 
                 additional_exp = "\n".join([e.original_text or "" for e in (experience_notes or [])])
@@ -212,17 +208,28 @@ class ResumeAgent:
         # Skip: contact_info, education, certifications, projects - not customized
         return "\n".join(parts)
 
-    def _build_job_analysis(self, match: JobMatch) -> Dict[str, Any]:
+    def _build_job_analysis(self, match: Optional[JobMatch]) -> Dict[str, Any]:
         """Build job analysis dict from match record."""
+        if not match:
+            return {
+                "match_score": 75,
+                "recommendation": "APPLY",
+                "strong_matches": [],
+                "partial_matches": [],
+                "missing_requirements": [],
+                "preferred_requirements_missing": [],
+                "concerns": [],
+                "reasoning": "Direct application candidate request",
+            }
         analysis = {
             "match_score": match.match_score,
             "recommendation": match.recommendation,
-            "strong_matches": match.strong_matches,
-            "partial_matches": match.partial_matches,
-            "missing_requirements": match.missing_requirements,
-            "preferred_requirements_missing": match.preferred_requirements_missing,
-            "concerns": match.concerns,
-            "reasoning": match.reasoning,
+            "strong_matches": match.strong_matches or [],
+            "partial_matches": match.partial_matches or [],
+            "missing_requirements": match.missing_requirements or [],
+            "preferred_requirements_missing": match.preferred_requirements_missing or [],
+            "concerns": match.concerns or [],
+            "reasoning": match.reasoning or "",
         }
         # Include pre-computed job analysis from matching phase if available
         if match.job_analysis:

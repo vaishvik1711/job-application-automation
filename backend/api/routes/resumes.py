@@ -143,13 +143,138 @@ async def get_resume(
     })
 
 
+async def _resolve_or_create_master_resume(session: AsyncSession, profile: Any) -> str:
+    """
+    Resolve existing master resume file (disk, DB, Supabase) or synthesize a clean
+    ATS-compatible DOCX template from CandidateProfile to ensure generation never 404s.
+    """
+    import os, glob
+    import docx
+    from docx.shared import Pt, Inches
+    from database.models import MasterResume
+    from sqlalchemy import select as sa_select
+
+    resume_dir = "data/master_resume"
+    os.makedirs(resume_dir, exist_ok=True)
+    resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
+    if resume_files:
+        return resume_files[0]
+
+    # Tier 1: Check MasterResume table in DB
+    try:
+        master_resume = (
+            await session.execute(
+                sa_select(MasterResume).order_by(MasterResume.created_at.desc()).limit(1)
+            )
+        ).scalars().first()
+        if master_resume and master_resume.file_data:
+            local_path = f"{resume_dir}/{master_resume.filename or 'master_resume.docx'}"
+            with open(local_path, "wb") as f:
+                f.write(bytes(master_resume.file_data))
+            logger.info("Restored master resume from DB: %s", master_resume.filename)
+            return local_path
+    except Exception as e:
+        logger.warning("Could not restore master resume from DB: %s", e)
+
+    # Tier 2: Check Supabase Storage
+    try:
+        from api.routes.profile import get_supabase_client
+        sb = get_supabase_client()
+        files = sb.storage.from_("resumes").list()
+        if files:
+            latest = files[-1]
+            file_data = sb.storage.from_("resumes").download(latest["name"])
+            local_path = f"{resume_dir}/{latest['name'].split('/')[-1]}"
+            with open(local_path, "wb") as f:
+                f.write(file_data)
+            return local_path
+    except Exception as e:
+        logger.warning("Could not download resume from Supabase: %s", e)
+
+    # Tier 3: Synthesize a clean ATS-friendly baseline DOCX resume from CandidateProfile
+    logger.info("Synthesizing baseline master resume from candidate profile...")
+    doc = docx.Document()
+
+    for s in doc.sections:
+        s.top_margin = Inches(0.75)
+        s.bottom_margin = Inches(0.75)
+        s.left_margin = Inches(0.75)
+        s.right_margin = Inches(0.75)
+
+    name_p = doc.add_paragraph()
+    name_run = name_p.add_run(getattr(profile, "full_name", None) or "Candidate Profile")
+    name_run.font.size = Pt(16)
+    name_run.font.bold = True
+
+    contact_items = [
+        getattr(profile, "email", "") or "",
+        getattr(profile, "phone", "") or "",
+        getattr(profile, "city", "") or "",
+        getattr(profile, "linkedin_url", "") or "",
+    ]
+    contact_str = " | ".join([c for c in contact_items if c])
+    if contact_str:
+        doc.add_paragraph(contact_str)
+
+    if getattr(profile, "summary", None):
+        doc.add_heading("Professional Summary", level=1)
+        doc.add_paragraph(profile.summary)
+
+    skills = getattr(profile, "skills", None) or []
+    if skills:
+        doc.add_heading("Skills", level=1)
+        skill_names = [s.get("name", str(s)) if isinstance(s, dict) else str(s) for s in skills]
+        doc.add_paragraph(", ".join(skill_names))
+
+    history = getattr(profile, "employment_history", None) or []
+    if history:
+        doc.add_heading("Experience", level=1)
+        for emp in history:
+            title = emp.get("title") or emp.get("role") or "Role"
+            company = emp.get("company") or "Company"
+            dates = f"{emp.get('start_date', '')} - {emp.get('end_date', 'Present')}".strip(" -")
+            p = doc.add_paragraph()
+            r1 = p.add_run(f"{title} - {company}")
+            r1.font.bold = True
+            if dates:
+                r2 = p.add_run(f" ({dates})")
+                r2.font.italic = True
+            desc = emp.get("description") or []
+            if isinstance(desc, str):
+                desc = [d.strip() for d in desc.split("\n") if d.strip()]
+            for d in desc:
+                cleaned = d.lstrip("•-* ").strip()
+                if cleaned:
+                    doc.add_paragraph(cleaned, style="List Bullet")
+
+    edu = getattr(profile, "education", None) or []
+    if edu:
+        doc.add_heading("Education", level=1)
+        for e in edu:
+            deg = e.get("degree") or "Degree"
+            inst = e.get("institution") or e.get("school") or "Institution"
+            doc.add_paragraph(f"{deg} - {inst}", style="List Bullet")
+
+    synth_path = f"{resume_dir}/master_resume.docx"
+    doc.save(synth_path)
+
+    try:
+        with open(synth_path, "rb") as f:
+            bytes_data = f.read()
+        session.add(MasterResume(filename="master_resume.docx", file_type="docx", file_data=bytes_data))
+        await session.flush()
+    except Exception as e:
+        logger.debug("Could not cache synthesized master resume to DB: %s", e)
+
+    return synth_path
+
+
 @router.post("/resumes/generate", response_model=ApiResponse)
 async def generate_resume(
     options: dict,
     session: AsyncSession = Depends(get_db_session),
 ):
     """Generate a customized resume for a job."""
-    import glob
     from resume.agent import create_resume_agent
     from database.repositories import RepositoryFactory
     from sqlalchemy import select
@@ -162,76 +287,25 @@ async def generate_resume(
         job_id = int(options["job_id"])
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail=f"Invalid job_id: {options['job_id']!r}")
-    logger.info(f"Looking for job_id: {job_id}")
 
     repo = RepositoryFactory(session)
     job = await repo.jobs.get_job(job_id)
-    logger.info(f"Repository get_job result: {job}")
-
-    # Also try direct query
-    direct = await session.execute(select(Job).where(Job.id == job_id))
-    direct_job = direct.scalars().first()
-    logger.info(f"Direct query result: {direct_job}")
+    if not job:
+        direct = await session.execute(select(Job).where(Job.id == job_id))
+        job = direct.scalars().first()
 
     if not job:
         raise HTTPException(status_code=404, detail=f"Job not found (id={job_id})")
 
     profile = await repo.candidates.get_profile()
     if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
+        raise HTTPException(status_code=404, detail="Candidate profile not found. Please upload your resume or create your profile on the Dashboard.")
 
-    # Find the user's uploaded resume (DOCX or PDF) in the master_resume directory
-    import os, glob
-    resume_dir = "data/master_resume"
-    resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
-
-    # Fallback 1: restore the master resume from the DB if it vanished from the
-    # ephemeral container filesystem (e.g. after a redeploy)
-    if not resume_files:
-        try:
-            from database.models import MasterResume
-            from sqlalchemy import select as sa_select
-            master_resume = (
-                await session.execute(
-                    sa_select(MasterResume).order_by(MasterResume.created_at.desc()).limit(1)
-                )
-            ).scalars().first()
-            if master_resume:
-                os.makedirs(resume_dir, exist_ok=True)
-                local_path = f"{resume_dir}/{master_resume.filename}"
-                with open(local_path, "wb") as f:
-                    f.write(bytes(master_resume.file_data))
-                resume_files = [local_path]
-                logger.info("Restored master resume from DB: %s", master_resume.filename)
-        except Exception as e:
-            logger.warning("Could not restore master resume from DB: %s", e)
-
-    # Fallback 2: try to download from Supabase Storage
-    if not resume_files:
-        try:
-            from api.routes.profile import get_supabase_client
-            sb = get_supabase_client()
-            # List files in the resumes bucket
-            files = sb.storage.from_("resumes").list()
-            if files:
-                # Download the most recently uploaded resume
-                latest = files[-1]
-                file_data = sb.storage.from_("resumes").download(latest["name"])
-                os.makedirs(resume_dir, exist_ok=True)
-                local_path = f"{resume_dir}/{latest['name'].split('/')[-1]}"
-                with open(local_path, "wb") as f:
-                    f.write(file_data)
-                resume_files = [local_path]
-        except Exception as e:
-            logger.warning("Could not download resume from Supabase: %s", e)
-
-    if not resume_files:
-        raise HTTPException(status_code=404, detail="No master resume found. Upload your resume first.")
-    master_resume_path = resume_files[0]
+    master_resume_path = await _resolve_or_create_master_resume(session, profile)
 
     agent = await create_resume_agent()
     result = await agent.generate_resume(
-        job_id=int(options["job_id"]),
+        job_id=job_id,
         master_resume_path=master_resume_path,
     )
 
@@ -241,7 +315,7 @@ async def generate_resume(
 
     return ApiResponse(data={
         "id": str(result.resume_id),
-        "job_id": options["job_id"],
+        "job_id": str(job_id),
         "job_title": job.title,
         "company": job.company,
         "template_id": "user_uploaded",
@@ -258,64 +332,26 @@ async def batch_generate(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Generate resumes for multiple jobs in one call. Optionally auto-create application records."""
-    import os, glob, asyncio
+    import asyncio
     from resume.agent import create_resume_agent
     from database.repositories import RepositoryFactory
-    from database.models import Job, MasterResume, Application, ApplicationStatus as AppStatusEnum
+    from database.models import Job, Application, ApplicationStatus as AppStatusEnum
     from sqlalchemy import select as sa_select
     from sqlalchemy.exc import IntegrityError
     from api.websocket import emit_pipeline_update
 
     repo = RepositoryFactory(session)
     total = len(body.job_ids)
-    results: list[dict] = []
 
     if total == 0:
         return BatchResumeResponse(results=[], total=0, succeeded=0, failed=0)
 
-    # Resolve master resume path (same 3-tier fallback as single generate)
-    resume_dir = "data/master_resume"
-    resume_files = glob.glob(f"{resume_dir}/*.docx") + glob.glob(f"{resume_dir}/*.pdf")
-    if not resume_files:
-        try:
-            master_resume = (
-                await session.execute(
-                    sa_select(MasterResume).order_by(MasterResume.created_at.desc()).limit(1)
-                )
-            ).scalars().first()
-            if master_resume:
-                os.makedirs(resume_dir, exist_ok=True)
-                local_path = f"{resume_dir}/{master_resume.filename}"
-                with open(local_path, "wb") as f:
-                    f.write(bytes(master_resume.file_data))
-                resume_files = [local_path]
-        except Exception as e:
-            logger.warning("Could not restore master resume from DB: %s", e)
-
-    if not resume_files:
-        try:
-            from api.routes.profile import get_supabase_client
-            sb = get_supabase_client()
-            files = sb.storage.from_("resumes").list()
-            if files:
-                latest = files[-1]
-                file_data = sb.storage.from_("resumes").download(latest["name"])
-                os.makedirs(resume_dir, exist_ok=True)
-                local_path = f"{resume_dir}/{latest['name'].split('/')[-1]}"
-                with open(local_path, "wb") as f:
-                    f.write(file_data)
-                resume_files = [local_path]
-        except Exception as e:
-            logger.warning("Could not download resume from Supabase: %s", e)
-
-    if not resume_files:
-        raise HTTPException(status_code=404, detail="No master resume found. Upload your resume first.")
-    master_resume_path = resume_files[0]
-
     # Check candidate profile
     profile = await repo.candidates.get_profile()
     if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
+        raise HTTPException(status_code=404, detail="Candidate profile not found. Please upload your resume on the Dashboard first.")
+
+    master_resume_path = await _resolve_or_create_master_resume(session, profile)
 
     agent = await create_resume_agent()
     semaphore = asyncio.Semaphore(body.max_concurrent or 3)
