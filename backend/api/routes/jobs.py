@@ -582,6 +582,7 @@ async def get_matches(
     session: AsyncSession = Depends(get_db_session),
 ):
     """Get matches with filtering."""
+    repos = RepositoryFactory(session)
     db_profile = await repos.candidates.get_profile()
 
     # If unmatched jobs exist, match them
