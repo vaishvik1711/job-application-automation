@@ -243,11 +243,14 @@ async def apply_to_job(
     mode = ((body or {}).get("mode") or "manual").lower()
     try:
         started = await apply_service.start(numeric_id, mode)
-    except ApplyError as e:
-        code = 400 if "AUTO mode is disabled" in str(e) else (
+    except (ApplyError, ValueError) as e:
+        code = 400 if ("AUTO mode is disabled" in str(e) or "not permit" in str(e) or "not supported" in str(e)) else (
             404 if "not found" in str(e) else 409
         )
         raise HTTPException(status_code=code, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to start apply for application %s: %s", app_id, e)
+        raise HTTPException(status_code=500, detail=f"Apply failed: {str(e)}")
     return ApiResponse(data=started, message=f"Apply run started ({started['mode']} mode)")
 
 

@@ -75,7 +75,7 @@ class ApplyService:
         if app is None:
             raise ApplyError(f"Application {application_id} not found")
 
-        flow = detect_site(app.application_url or "")
+        flow = detect_site(app.application_url or "", mode=submission_mode.value)
 
         task = asyncio.create_task(self._run(application_id, submission_mode, flow))
         registry.register(application_id, task)
@@ -221,6 +221,15 @@ class ApplyService:
                         application_id, flow,
                         "Resume file is no longer on the server — regenerate it from the job card, then apply again.",
                         ["resume_file"],
+                    )
+                    return
+
+                # For external platforms in manual mode (LinkedIn, Indeed), prepare review state
+                if flow.key in ("linkedin", "indeed", "manual_external"):
+                    await self._finish_needs_review(
+                        application_id, flow,
+                        f"Tailored resume ready for {flow.name}. Click the application link to review and submit.",
+                        [],
                     )
                     return
 

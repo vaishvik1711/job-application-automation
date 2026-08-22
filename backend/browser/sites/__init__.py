@@ -40,16 +40,24 @@ class SiteFlow:
 from browser.sites import jobbank, greenhouse, lever, generic  # noqa: E402
 
 
-def detect_site(url: str) -> SiteFlow:
-    """Map a job URL to its apply flow. Raises UnsupportedSiteError for
-    non-whitelisted hosts."""
+def detect_site(url: str, mode: str = "manual") -> SiteFlow:
+    """Map a job URL to its apply flow. Returns manual apply flow for external job portals."""
     if not url:
-        raise UnsupportedSiteError("Job has no application URL")
+        return generic.flow()
 
     host = (urlparse(url).hostname or "").lower()
-    if any(host == b or host.endswith("." + b) for b in BLOCKED_HOSTS):
-        raise UnsupportedSiteError(
-            f"{host} is not supported for auto-apply (policy: JobBank, Greenhouse and Lever only)"
+
+    if any(host == b or host.endswith("." + b) for b in ("linkedin.com", "indeed.com")):
+        if mode == "auto":
+            raise UnsupportedSiteError(
+                f"{host} does not permit headless auto-submission. Use manual review mode."
+            )
+        site_name = "LinkedIn (Manual Apply)" if "linkedin" in host else "Indeed (Manual Apply)"
+        site_key = "linkedin" if "linkedin" in host else "indeed"
+        return SiteFlow(
+            key=site_key,
+            name=site_name,
+            requires_login=False,
         )
 
     if jobbank.matches(host):
